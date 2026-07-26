@@ -1,0 +1,28 @@
+# Entornos virtuales
+.venv/
+myenv/
+venv/
+venv312/
+
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Artefactos de PyInstaller
+build/
+dist/
+*.manifest
+
+# Audio de pruebas (~38 MB). Se deja fuera del repo a propósito: son binarios
+# grandes y pueden ser grabaciones con derechos de autor. Borra estas líneas si
+# quieres versionarlos. Las anotaciones .lab sí van, que es lo útil para comparar.
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.m4a
+*.aac
+*.wma
+
+# Salidas locales
+result.txt

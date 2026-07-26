@@ -1,0 +1,29 @@
+# --- Núcleo de extracción de acordes ---
+# IMPORTANTE: madmom NO se instala desde PyPI en Python 3.10+ (la versión 0.16.1
+# de PyPI es de 2018 y rompe con numpy moderno). Hay que instalarlo desde git,
+# que trae los parches de compatibilidad, y fijar numpy < 2.
+numpy<2
+Cython
+scipy
+madmom @ git+https://github.com/CPJKU/madmom.git
+
+# --- Servidor de la API + interfaz web (opcional, solo si usas server.py) ---
+fastapi
+uvicorn[standard]
+python-multipart
+
+# --- Interfaz de escritorio (opcional, solo si usas gui.py) ---
+# Tkinter viene con Python, pero en Fedora es un paquete aparte:
+#   dnf install python3-tkinter
+# pygame solo hace falta para el reproductor; sin él la GUI funciona igual.
+pygame
+
+# Dependencia de SISTEMA (no es pip): ffmpeg  ->  dnf install ffmpeg-free
+# madmom lo necesita para decodificar MP3/M4A/etc. WAV funciona sin ffmpeg.
+
+# --- Separación de fuentes (OPCIONAL, solo si usas --separate) ---
+# demucs arrastra PyTorch. En Fedora necesitas gcc + python3.12-devel para
+# compilar madmom (dnf install gcc gcc-c++ make python3.12-devel).
+# GPU Blackwell (RTX 50xx): si torch no reconoce la tarjeta, instala el build CUDA 12.8:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+demucs
