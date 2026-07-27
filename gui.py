@@ -438,24 +438,38 @@ class ChordApp(ttk.Frame):
         body = ttk.Frame(win, padding=12)
         body.pack(fill="both", expand=True)
 
+        search_row = ttk.Frame(body)
+        search_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(search_row, text="Buscar:").pack(side="left")
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_row, textvariable=search_var, width=34)
+        search_entry.pack(side="left", padx=(8, 8))
+        ttk.Label(search_row, style="Muted.TLabel",
+                  text="por nombre de archivo, método o tonalidad · "
+                       "pulsa una cabecera para ordenar").pack(side="left")
+
         table = ttk.Frame(body)
         table.pack(fill="both", expand=True)
 
-        columns = ("archivo", "fecha", "metodo", "tonalidad", "tempo",
-                   "acordes", "duracion", "audio")
-        tree = ttk.Treeview(table, columns=columns, show="headings",
-                            selectmode="browse")
-        for col, title, width, anchor in (
-            ("archivo", "Archivo", 250, "w"),
-            ("fecha", "Analizado", 130, "w"),
-            ("metodo", "Método", 90, "w"),
-            ("tonalidad", "Tonalidad", 100, "w"),
-            ("tempo", "Tempo", 80, "e"),
-            ("acordes", "Acordes", 70, "e"),
-            ("duracion", "Duración", 80, "e"),
-            ("audio", "Audio", 110, "w"),
-        ):
-            tree.heading(col, text=title)
+        # (columna, título, ancho, alineación, cómo se ordena)
+        columns = (
+            ("archivo", "Archivo", 250, "w", lambda e: e.filename.lower()),
+            ("fecha", "Analizado", 130, "w", lambda e: e.created_at),
+            ("metodo", "Método", 90, "w", lambda e: e.method),
+            ("tonalidad", "Tonalidad", 100, "w", lambda e: (e.key or "").lower()),
+            ("tempo", "Tempo", 80, "e", lambda e: e.tempo_bpm or 0.0),
+            ("acordes", "Acordes", 70, "e", lambda e: e.chord_count),
+            ("duracion", "Duración", 80, "e", lambda e: e.audio_duration),
+            ("audio", "Audio", 110, "w", lambda e: e.file_exists),
+        )
+        sort_keys = {col: key for col, _t, _w, _a, key in columns}
+        titles = {col: title for col, title, _w, _a, _k in columns}
+
+        tree = ttk.Treeview(table, columns=[c[0] for c in columns],
+                            show="headings", selectmode="browse")
+        for col, title, width, anchor, _key in columns:
+            tree.heading(col, text=title,
+                         command=lambda c=col: sort_by(c))
             tree.column(col, width=width, anchor=anchor,
                         stretch=(col == "archivo"))
         scroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
@@ -466,11 +480,44 @@ class ChordApp(ttk.Frame):
 
         ids: dict[str, int] = {}
         count_label = ttk.Label(body, style="Muted.TLabel")
+        # Por defecto, lo más reciente primero.
+        state = {"entries": [], "column": "fecha", "reverse": True}
+
+        def sort_by(column: str):
+            if state["column"] == column:
+                state["reverse"] = not state["reverse"]
+            else:
+                state["column"] = column
+                # Fechas y números empiezan de mayor a menor; el texto, de A a Z.
+                state["reverse"] = column in ("fecha", "tempo", "acordes",
+                                              "duracion", "audio")
+            render()
 
         def refresh():
+            """Relee de la base y repinta."""
+            state["entries"] = self.history.recent()
+            render()
+
+        def render():
+            """Aplica filtro y orden sobre lo ya leído."""
+            needle = search_var.get().strip().lower()
+            entries = [
+                e for e in state["entries"]
+                if not needle
+                or needle in e.filename.lower()
+                or needle in e.method.lower()
+                or needle in (e.key or "").lower()
+            ]
+            entries.sort(key=sort_keys[state["column"]], reverse=state["reverse"])
+
+            for col in sort_keys:
+                arrow = ""
+                if col == state["column"]:
+                    arrow = "  ▼" if state["reverse"] else "  ▲"
+                tree.heading(col, text=titles[col] + arrow)
+
             tree.delete(*tree.get_children())
             ids.clear()
-            entries = self.history.recent()
             for e in entries:
                 row = tree.insert(
                     "", "end", tags=() if e.file_exists else ("missing",),
@@ -480,9 +527,18 @@ class ChordApp(ttk.Frame):
                             e.chord_count, format_time(e.audio_duration),
                             "disponible" if e.file_exists else "no encontrado"))
                 ids[row] = e.id
-            count_label.configure(
-                text=f"{len(entries)} análisis guardados. Los marcados como «no "
-                     f"encontrado» se pueden ver, pero no reproducir.")
+
+            total = len(state["entries"])
+            if needle:
+                count_label.configure(
+                    text=f"{len(entries)} de {total} análisis coinciden con "
+                         f"«{search_var.get().strip()}».")
+            else:
+                count_label.configure(
+                    text=f"{total} análisis guardados. Los marcados como «no "
+                         f"encontrado» se pueden ver, pero no reproducir.")
+
+        search_var.trace_add("write", lambda *_a: render())
 
         def load_selected():
             sel = tree.selection()
@@ -509,15 +565,27 @@ class ChordApp(ttk.Frame):
             sel = tree.selection()
             if not sel:
                 return
-            self.history.delete(ids[sel[0]])
-            refresh()
+            values = tree.item(sel[0], "values")
+            if messagebox.askyesno(
+                    "Eliminar del historial",
+                    f"¿Eliminar este análisis?\n\n"
+                    f"{values[0]}\n{values[2]} · analizado el {values[1]}\n\n"
+                    f"El archivo de audio no se toca, pero habrá que volver a "
+                    f"procesarlo.",
+                    parent=win, default="no", icon="warning"):
+                self.history.delete(ids[sel[0]])
+                refresh()
 
         def clear_all():
+            total = len(state["entries"])
+            if not total:
+                return
             if messagebox.askyesno(
                     "Vaciar historial",
-                    "¿Borrar todos los análisis guardados?\n"
-                    "Los archivos de audio no se tocan, pero habrá que volver a "
-                    "procesarlos.", parent=win):
+                    f"¿Borrar los {total} análisis guardados?\n\n"
+                    f"Esto no se puede deshacer. Los archivos de audio no se "
+                    f"tocan, pero habrá que volver a procesarlos.",
+                    parent=win, default="no", icon="warning"):
                 self.history.clear()
                 refresh()
 
