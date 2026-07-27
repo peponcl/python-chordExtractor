@@ -68,9 +68,17 @@ que la ventana no se congela. Verás:
 - un **reproductor** cuyo cursor recorre la línea de tiempo, resalta la fila del
   acorde que suena y lo muestra en grande. Haz clic en la línea de tiempo o en
   una fila para saltar a ese punto;
-- botones para **exportar** el resultado a JSON o a `.lab`.
+- botones para **exportar** el resultado a JSON o a `.lab`;
+- un **tema claro y uno oscuro**, que se alternan con el botón de la barra
+  superior. Arranca en oscuro y recuerda tu elección en
+  `%LOCALAPPDATA%\ChordExtractor\config.json`. En Windows 10 2004+ y 11 la barra
+  de título también se pone oscura.
 
 Sin `pygame` todo lo demás funciona igual: solo se desactiva la reproducción.
+
+En el ejecutable empaquetado no aparecen la casilla de Demucs ni el selector de
+dispositivo: la separación no puede funcionar ahí (ver la sección de
+distribución), así que no se construyen esos controles.
 
 ## Uso — interfaz web
 

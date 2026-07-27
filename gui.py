@@ -20,6 +20,7 @@ Sin pygame la aplicación funciona igual, solo se desactiva la reproducción.
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sys
@@ -54,20 +55,101 @@ APP_VERSION = "1.0"
 AUTHOR = "pepon"
 AUTHOR_SITE = "pepon.cl"
 
-BG = "#fbfbfd"
-CANVAS_BG = "#ffffff"
-MUTED = "#6b7280"
+# Paletas. Tkinter no trae tema oscuro, así que hay que definir cada color y
+# reaplicarlo a mano al cambiar. Los tonos siguen los de la interfaz web para que
+# las dos se vean como la misma aplicación.
+THEMES = {
+    "claro": {
+        "bg": "#f6f7f9",
+        "panel": "#ffffff",
+        "text": "#14161c",
+        "muted": "#6b7280",
+        "border": "#e3e4ea",
+        "accent": "#3b5bdb",
+        "accent_text": "#ffffff",
+        "accent_hover": "#2f4bc0",
+        "field": "#ffffff",
+        "select_bg": "#dbe4ff",
+        "ruler": "#b9bcc6",
+        "playhead": "#111827",
+        "seg_outline": "#ffffff",
+        "trough": "#e6e7ec",
+        "dark_titlebar": False,
+    },
+    "oscuro": {
+        "bg": "#14161c",
+        "panel": "#1b1e26",
+        "text": "#e8e9ef",
+        "muted": "#969aa8",
+        "border": "#2f333f",
+        "accent": "#6b83f0",
+        "accent_text": "#0e1016",
+        "accent_hover": "#8598f5",
+        "field": "#22262f",
+        "select_bg": "#33406b",
+        "ruler": "#565b6b",
+        "playhead": "#f2f3f7",
+        "seg_outline": "#1b1e26",
+        "trough": "#2a2e39",
+        "dark_titlebar": True,
+    },
+}
+DEFAULT_THEME = "oscuro"
 
 
 FROZEN = getattr(sys, "frozen", False)   # True dentro del .exe de PyInstaller
 
 
-def log_path() -> str:
-    """Archivo donde se vuelca la traza cuando no hay consola (build windowed)."""
+def app_dir() -> str:
+    """Carpeta de datos de la aplicación (log y preferencias)."""
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     directory = os.path.join(base, "ChordExtractor")
     os.makedirs(directory, exist_ok=True)
-    return os.path.join(directory, "error.log")
+    return directory
+
+
+def log_path() -> str:
+    """Archivo donde se vuelca la traza cuando no hay consola (build windowed)."""
+    return os.path.join(app_dir(), "error.log")
+
+
+def load_theme() -> str:
+    """Tema guardado de la sesión anterior, o el de por defecto."""
+    try:
+        with open(os.path.join(app_dir(), "config.json"), encoding="utf-8") as fh:
+            name = json.load(fh).get("theme")
+        return name if name in THEMES else DEFAULT_THEME
+    except (OSError, ValueError):
+        return DEFAULT_THEME
+
+
+def save_theme(name: str) -> None:
+    try:
+        with open(os.path.join(app_dir(), "config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"theme": name}, fh)
+    except OSError:
+        pass       # que no se pueda recordar la preferencia no es motivo de error
+
+
+def set_dark_titlebar(window, dark: bool) -> None:
+    """
+    Barra de título oscura en Windows 10 2004+ / 11 (DWMWA_USE_IMMERSIVE_DARK_MODE).
+    Sin esto, un tema oscuro con barra blanca parece un error de la aplicación.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        value = ctypes.c_int(1 if dark else 0)
+        # 20 en builds modernas, 19 en las primeras que lo soportaron.
+        for attribute in (20, 19):
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                break
+    except Exception:
+        pass       # en Windows antiguo o si DWM falla, se queda la barra clara
 
 
 def report_error(trace: str) -> str | None:
@@ -149,15 +231,17 @@ class ChordApp(ttk.Frame):
         self._auto_selected_row: str | None = None
 
         self._audio_ready = self._init_mixer()
+        self.theme_name = load_theme()
 
         self._build_style()
-        self._build_menu()
         self._build_toolbar()
         self._build_options()
         self._build_summary()
         self._build_timeline()
         self._build_table()
         self._build_player()
+        # Segunda pasada: canvas, menú y tabla no existían en la primera.
+        self._apply_theme()
 
         self.after(60, self._tick)
         if initial_file:
@@ -178,41 +262,121 @@ class ChordApp(ttk.Frame):
             return False
 
     def _build_style(self):
-        style = ttk.Style()
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-        self.master.configure(bg=BG)
-        style.configure(".", background=BG)
-        style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG)
-        style.configure("TLabelframe", background=BG)
-        style.configure("TLabelframe.Label", background=BG)
-        style.configure("TCheckbutton", background=BG)
-        style.configure("Muted.TLabel", foreground=MUTED)
-        style.configure("Title.TLabel", font=("Segoe UI", 11, "bold"))
-        style.configure("Big.TLabel", font=("Segoe UI", 22, "bold"))
-        style.configure("Treeview", rowheight=24, fieldbackground="#ffffff")
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        self.style = ttk.Style()
+        # clam es el único tema de ttk que deja redefinir colores a fondo; los
+        # nativos de Windows ignoran la mayoría de las opciones de background.
+        if "clam" in self.style.theme_names():
+            self.style.theme_use("clam")
+        self._apply_theme()
 
-    def _build_menu(self):
-        menubar = tk.Menu(self.master)
+    def _apply_theme(self):
+        c = self.colors = THEMES[self.theme_name]
+        s = self.style
 
-        archivo = tk.Menu(menubar, tearoff=False)
-        archivo.add_command(label="Abrir audio…", command=self._on_open)
-        archivo.add_separator()
-        archivo.add_command(label="Salir", command=self.master.destroy)
-        menubar.add_cascade(label="Archivo", menu=archivo)
+        self.master.configure(bg=c["bg"])
+        s.configure(".", background=c["bg"], foreground=c["text"],
+                    fieldbackground=c["field"], troughcolor=c["trough"],
+                    bordercolor=c["border"], focuscolor=c["accent"])
+        for widget in ("TFrame", "TLabel", "TLabelframe", "TLabelframe.Label",
+                       "TCheckbutton", "TRadiobutton", "TSeparator", "TScale"):
+            s.configure(widget, background=c["bg"], foreground=c["text"])
+        s.configure("TSeparator", background=c["border"])
+        s.configure("Muted.TLabel", background=c["bg"], foreground=c["muted"])
+        s.configure("Title.TLabel", background=c["bg"], foreground=c["text"],
+                    font=("Segoe UI", 11, "bold"))
+        s.configure("Big.TLabel", background=c["bg"], foreground=c["text"],
+                    font=("Segoe UI", 22, "bold"))
 
-        ayuda = tk.Menu(menubar, tearoff=False)
-        ayuda.add_command(label=f"Acerca de {APP_NAME}…", command=self._show_about)
-        menubar.add_cascade(label="Ayuda", menu=ayuda)
+        # Botones: planos, con uno de acento para la acción principal.
+        s.configure("TButton", background=c["panel"], foreground=c["text"],
+                    bordercolor=c["border"], relief="flat", padding=(12, 6))
+        s.map("TButton",
+              background=[("disabled", c["bg"]), ("pressed", c["border"]),
+                          ("active", c["field"])],
+              foreground=[("disabled", c["muted"])])
+        s.configure("Accent.TButton", background=c["accent"],
+                    foreground=c["accent_text"], relief="flat", padding=(16, 6),
+                    font=("Segoe UI", 9, "bold"))
+        s.map("Accent.TButton",
+              background=[("disabled", c["trough"]), ("active", c["accent_hover"])],
+              foreground=[("disabled", c["muted"])])
 
-        self.master.configure(menu=menubar)
+        s.configure("TCheckbutton", indicatorcolor=c["field"])
+        s.map("TCheckbutton",
+              indicatorcolor=[("selected", c["accent"])],
+              foreground=[("disabled", c["muted"])])
+
+        s.configure("TCombobox", fieldbackground=c["field"], background=c["panel"],
+                    foreground=c["text"], arrowcolor=c["text"],
+                    bordercolor=c["border"], selectbackground=c["select_bg"],
+                    selectforeground=c["text"])
+        s.map("TCombobox",
+              fieldbackground=[("readonly", c["field"]), ("disabled", c["bg"])],
+              foreground=[("disabled", c["muted"])])
+        # El desplegable del Combobox es un Listbox tk interno: sólo se puede
+        # colorear por la base de datos de opciones.
+        self.master.option_add("*TCombobox*Listbox.background", c["field"])
+        self.master.option_add("*TCombobox*Listbox.foreground", c["text"])
+        self.master.option_add("*TCombobox*Listbox.selectBackground", c["accent"])
+        self.master.option_add("*TCombobox*Listbox.selectForeground", c["accent_text"])
+
+        s.configure("TProgressbar", background=c["accent"], troughcolor=c["trough"],
+                    bordercolor=c["border"], lightcolor=c["accent"],
+                    darkcolor=c["accent"])
+        s.configure("TScrollbar", background=c["panel"], troughcolor=c["trough"],
+                    bordercolor=c["border"], arrowcolor=c["muted"])
+        s.map("TScrollbar", background=[("active", c["border"])])
+        s.configure("TScale", troughcolor=c["trough"], background=c["bg"])
+
+        s.configure("Treeview", rowheight=24, background=c["panel"],
+                    fieldbackground=c["panel"], foreground=c["text"],
+                    bordercolor=c["border"], relief="flat")
+        s.map("Treeview", background=[("selected", c["select_bg"])],
+              foreground=[("selected", c["text"])])
+        s.configure("Treeview.Heading", background=c["field"], foreground=c["muted"],
+                    relief="flat", font=("Segoe UI", 9, "bold"))
+        s.map("Treeview.Heading", background=[("active", c["border"])])
+
+        # El canvas es un widget clásico: no lo alcanza ttk.
+        if hasattr(self, "canvas"):
+            self.canvas.configure(bg=c["panel"], highlightbackground=c["border"])
+        if hasattr(self, "theme_btn"):
+            # El botón anuncia a qué tema cambia, no en cuál estás.
+            self.theme_btn.configure(
+                text="☀  Tema claro" if self.theme_name == "oscuro"
+                else "☾  Tema oscuro")
+
+        set_dark_titlebar(self.master, c["dark_titlebar"])
+        if hasattr(self, "tree"):
+            self._retag_rows()
+        if hasattr(self, "canvas"):
+            self._draw_timeline()
+
+    def _set_theme(self, name: str):
+        if name not in THEMES or name == self.theme_name:
+            return
+        self.theme_name = name
+        self._apply_theme()
+        save_theme(name)
+
+    def _toggle_theme(self):
+        self._set_theme("claro" if self.theme_name == "oscuro" else "oscuro")
+
+    def _retag_rows(self):
+        """Recolorea las filas: el tinte por acorde depende del tema."""
+        if not self.result:
+            return
+        dark = self.theme_name == "oscuro"
+        for seg in self.result.chords:
+            self.tree.tag_configure(f"chord{seg.chord}",
+                                    background=tint_for(seg.chord, dark=dark),
+                                    foreground=self.colors["text"])
 
     def _show_about(self):
         win = tk.Toplevel(self.master)
         win.title(f"Acerca de {APP_NAME}")
-        win.configure(bg=BG)
+        win.configure(bg=self.colors["bg"])
+        set_dark_titlebar(win, self.colors["dark_titlebar"])
         win.resizable(False, False)
         win.transient(self.master)
 
@@ -262,9 +426,16 @@ class ChordApp(ttk.Frame):
                                     style="Muted.TLabel")
         self.file_label.pack(side="left", padx=10)
 
+        # Con side="right" el primero que se empaqueta queda más a la derecha.
         self.analyze_btn = ttk.Button(bar, text="Analizar", command=self._on_analyze,
-                                      state="disabled")
+                                      state="disabled", style="Accent.TButton")
         self.analyze_btn.pack(side="right")
+        ttk.Button(bar, text="Acerca de", command=self._show_about
+                   ).pack(side="right", padx=(0, 8))
+        # La franja del menú la dibuja Windows y no acepta color, así que el
+        # cambio de tema vive aquí, donde sí se puede estilar.
+        self.theme_btn = ttk.Button(bar, command=self._toggle_theme, width=14)
+        self.theme_btn.pack(side="right", padx=(0, 8))
 
     def _build_options(self):
         box = ttk.Labelframe(self, text="Opciones de análisis", padding=8)
@@ -282,24 +453,23 @@ class ChordApp(ttk.Frame):
         ttk.Checkbutton(box, text="Tempo", variable=self.tempo_var
                         ).grid(row=0, column=3, padx=(0, 16))
 
+        # La separación con Demucs no puede funcionar empaquetada:
+        # separate_harmonic() lanza "sys.executable -m demucs", y dentro del .exe
+        # sys.executable es el propio ejecutable. En vez de dejar un control
+        # muerto con una etiqueta disculpándose, no se construye.
         self.separate_var = tk.BooleanVar(value=False)
-        self.separate_check = ttk.Checkbutton(
-            box, text="Separar con Demucs (bass + other)",
-            variable=self.separate_var, command=self._sync_device_state)
-        self.separate_check.grid(row=0, column=4, padx=(0, 8))
-
-        # separate_harmonic() lanza "sys.executable -m demucs". Dentro del .exe
-        # sys.executable es el propio ejecutable, así que eso relanzaría la GUI
-        # en bucle en vez de ejecutar Demucs: mejor desactivarlo.
-        if FROZEN:
-            self.separate_check.configure(
-                state="disabled", text="Separar con Demucs (no disponible en el .exe)")
-
-        ttk.Label(box, text="Dispositivo:").grid(row=0, column=5, sticky="w")
         self.device_var = tk.StringVar(value="auto")
-        self.device_combo = ttk.Combobox(box, textvariable=self.device_var, width=7,
-                                         state="disabled", values=["auto", "cuda", "cpu"])
-        self.device_combo.grid(row=0, column=6, padx=(4, 0))
+        if not FROZEN:
+            self.separate_check = ttk.Checkbutton(
+                box, text="Separar con Demucs (bass + other)",
+                variable=self.separate_var, command=self._sync_device_state)
+            self.separate_check.grid(row=0, column=4, padx=(0, 8))
+
+            ttk.Label(box, text="Dispositivo:").grid(row=0, column=5, sticky="w")
+            self.device_combo = ttk.Combobox(box, textvariable=self.device_var,
+                                             width=7, state="disabled",
+                                             values=["auto", "cuda", "cpu"])
+            self.device_combo.grid(row=0, column=6, padx=(4, 0))
 
         self.progress = ttk.Progressbar(box, mode="indeterminate")
         self.progress.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(10, 0))
@@ -325,8 +495,10 @@ class ChordApp(ttk.Frame):
         wrap = ttk.Frame(self)
         wrap.pack(fill="x", pady=(8, 0))
 
-        self.canvas = tk.Canvas(wrap, height=110, bg=CANVAS_BG, highlightthickness=1,
-                                highlightbackground="#e3e4ea", cursor="hand2")
+        self.canvas = tk.Canvas(wrap, height=110, bg=self.colors["panel"],
+                                highlightthickness=1,
+                                highlightbackground=self.colors["border"],
+                                cursor="hand2")
         self.canvas.pack(fill="x")
         self.canvas.bind("<Configure>", lambda _e: self._draw_timeline())
         self.canvas.bind("<Button-1>", self._on_timeline_click)
@@ -444,6 +616,8 @@ class ChordApp(ttk.Frame):
         self._draw_timeline()
 
     def _sync_device_state(self):
+        if not hasattr(self, "device_combo"):
+            return          # empaquetado: los controles de Demucs no existen
         self.device_combo.configure(
             state="readonly" if self.separate_var.get() else "disabled")
 
@@ -524,13 +698,12 @@ class ChordApp(ttk.Frame):
         self._row_ids = []
         self._auto_selected_row = None
         for i, seg in enumerate(result.chords, start=1):
-            tag = f"chord{seg.chord}"
-            self.tree.tag_configure(tag, background=tint_for(seg.chord))
             row = self.tree.insert(
-                "", "end", tags=(tag,),
+                "", "end", tags=(f"chord{seg.chord}",),
                 values=(i, f"{seg.start:.2f}", f"{seg.end:.2f}",
                         f"{seg.end - seg.start:.2f}", pretty_label(seg.chord)))
             self._row_ids.append(row)
+        self._retag_rows()      # el tinte depende del tema activo
 
         self.export_json_btn.configure(state="normal")
         self.export_lab_btn.configure(state="normal")
@@ -559,10 +732,11 @@ class ChordApp(ttk.Frame):
         height = c.winfo_height()
         c.configure(scrollregion=(0, 0, span + 2 * pad, height))
 
+        colors = self.colors
         if not self.result or self.duration <= 0:
             c.create_text(c.winfo_width() / 2, height / 2,
                           text="Analiza un archivo para ver aquí la línea de acordes",
-                          fill=MUTED, font=("Segoe UI", 10))
+                          fill=colors["muted"], font=("Segoe UI", 10))
             return
 
         top, bottom = 12, height - 26
@@ -572,7 +746,7 @@ class ChordApp(ttk.Frame):
             if x1 - x0 < 1:
                 x1 = x0 + 1
             c.create_rectangle(x0, top, x1, bottom, fill=color_for(seg.chord),
-                               outline="#ffffff", width=1)
+                               outline=colors["seg_outline"], width=1)
             if x1 - x0 > 26:
                 c.create_text((x0 + x1) / 2, (top + bottom) / 2,
                               text=pretty_label(seg.chord),
@@ -583,12 +757,13 @@ class ChordApp(ttk.Frame):
         t = 0.0
         while t <= self.duration:
             x = pad + t / self.duration * span
-            c.create_line(x, bottom, x, bottom + 5, fill="#b9bcc6")
-            c.create_text(x, bottom + 14, text=format_time(t), fill=MUTED,
+            c.create_line(x, bottom, x, bottom + 5, fill=colors["ruler"])
+            c.create_text(x, bottom + 14, text=format_time(t), fill=colors["muted"],
                           font=("Segoe UI", 8))
             t += step
 
-        c.create_line(pad, top, pad, bottom, fill="#111827", width=2, tags="playhead")
+        c.create_line(pad, top, pad, bottom, fill=colors["playhead"], width=2,
+                      tags="playhead")
         self._move_playhead()
 
     def _move_playhead(self):

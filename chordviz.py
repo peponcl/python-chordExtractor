@@ -64,12 +64,19 @@ def color_for(label: str) -> str:
     return _hex(*colorsys.hsv_to_rgb(hue, 0.62, 0.94))
 
 
-def tint_for(label: str) -> str:
-    """Versión pálida del color, para el fondo de las filas de la tabla."""
+def tint_for(label: str, dark: bool = False) -> str:
+    """
+    Color de fondo de las filas de la tabla: un tinte del acorde.
+    Pálido sobre tema claro; oscuro y apagado sobre tema oscuro, para que el
+    texto claro siga leyéndose encima.
+    """
     pc, quality = parse_chord(label)
     if pc is None:
-        return "#f1f2f5"
+        return "#252a33" if dark else "#f1f2f5"
     hue = pc / 12.0
+    if dark:
+        return _hex(*colorsys.hsv_to_rgb(hue, 0.34 if quality == "min" else 0.40,
+                                         0.26))
     sat = 0.16 if quality == "min" else 0.20
     return _hex(*colorsys.hsv_to_rgb(hue, sat, 0.99))
 
