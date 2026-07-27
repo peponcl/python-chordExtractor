@@ -21,6 +21,7 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `gui.py` — interfaz gráfica de escritorio (Tkinter).
 - `web/index.html` — interfaz web, servida por `server.py` en la raíz.
 - `chordviz.py` — colores y etiquetas de acorde compartidos por ambas interfaces.
+- `history.py` — historial y caché de análisis en SQLite.
 - `chordextractor.spec` + `packaging/` — receta de PyInstaller para distribuir la
   GUI como ejecutable autónomo.
 - `server.py` — API FastAPI mínima (`POST /extract` con el archivo subido).
@@ -68,6 +69,10 @@ que la ventana no se congela. Verás:
 - un **reproductor** cuyo cursor recorre la línea de tiempo, resalta la fila del
   acorde que suena y lo muestra en grande. Haz clic en la línea de tiempo o en
   una fila para saltar a ese punto;
+- **historial y caché**: cada análisis se guarda, y si vuelves a pulsar
+  «Analizar» sobre un archivo ya procesado con las mismas opciones, el resultado
+  aparece al instante en vez de reprocesarlo. El botón **Historial** abre la
+  lista de análisis guardados para recargar cualquiera con un doble clic;
 - botones para **exportar** el resultado a JSON o a `.lab`;
 - un **tema claro y uno oscuro**, que se alternan con el botón de la barra
   superior. Arranca en oscuro y recuerda tu elección en

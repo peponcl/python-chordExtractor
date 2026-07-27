@@ -31,6 +31,7 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 from chord_extractor import ExtractionResult, extract
+from history import History, HistoryUnavailable, options_key
 from chordviz import (
     color_for,
     format_time,
@@ -51,7 +52,7 @@ AUDIO_TYPES = [
 ]
 
 APP_NAME = "Chord Extractor"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 AUTHOR = "pepon"
 AUTHOR_SITE = "pepon.cl"
 
@@ -232,6 +233,12 @@ class ChordApp(ttk.Frame):
 
         self._audio_ready = self._init_mixer()
         self.theme_name = load_theme()
+        # Si el historial no se puede abrir, la aplicación sigue funcionando:
+        # simplemente reanaliza siempre.
+        try:
+            self.history: History | None = History(app_dir())
+        except HistoryUnavailable:
+            self.history = None
 
         self._build_style()
         self._build_toolbar()
@@ -402,8 +409,9 @@ class ChordApp(ttk.Frame):
 
         ttk.Label(body, style="Muted.TLabel", justify="left",
                   text="Detección de acordes con los modelos preentrenados de madmom.\n"
-                       "Interfaz en Python y Tkinter; audio con pygame y ffmpeg.").pack(
-            anchor="w", pady=(14, 16))
+                       "Interfaz en Python y Tkinter; audio con pygame y ffmpeg.\n"
+                       "El historial se guarda en una base SQLite en tu carpeta de "
+                       "datos.").pack(anchor="w", pady=(14, 16))
 
         ttk.Button(body, text="Cerrar", command=win.destroy).pack(anchor="e")
 
@@ -413,6 +421,120 @@ class ChordApp(ttk.Frame):
         y = self.master.winfo_rooty() + (self.master.winfo_height() - win.winfo_height()) // 3
         win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
 
+        win.grab_set()
+        win.focus_set()
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+    def _show_history(self):
+        if self.history is None:
+            return
+        win = tk.Toplevel(self.master)
+        win.title("Historial de análisis")
+        win.configure(bg=self.colors["bg"])
+        set_dark_titlebar(win, self.colors["dark_titlebar"])
+        win.geometry("900x460")
+        win.transient(self.master)
+
+        body = ttk.Frame(win, padding=12)
+        body.pack(fill="both", expand=True)
+
+        table = ttk.Frame(body)
+        table.pack(fill="both", expand=True)
+
+        columns = ("archivo", "fecha", "metodo", "tonalidad", "tempo",
+                   "acordes", "duracion", "audio")
+        tree = ttk.Treeview(table, columns=columns, show="headings",
+                            selectmode="browse")
+        for col, title, width, anchor in (
+            ("archivo", "Archivo", 250, "w"),
+            ("fecha", "Analizado", 130, "w"),
+            ("metodo", "Método", 90, "w"),
+            ("tonalidad", "Tonalidad", 100, "w"),
+            ("tempo", "Tempo", 80, "e"),
+            ("acordes", "Acordes", 70, "e"),
+            ("duracion", "Duración", 80, "e"),
+            ("audio", "Audio", 110, "w"),
+        ):
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor=anchor,
+                        stretch=(col == "archivo"))
+        scroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        tree.tag_configure("missing", foreground=self.colors["muted"])
+
+        ids: dict[str, int] = {}
+        count_label = ttk.Label(body, style="Muted.TLabel")
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            ids.clear()
+            entries = self.history.recent()
+            for e in entries:
+                row = tree.insert(
+                    "", "end", tags=() if e.file_exists else ("missing",),
+                    values=(e.filename, f"{e.created_at:%d/%m/%Y %H:%M}", e.method,
+                            e.key or "—",
+                            f"{e.tempo_bpm:.1f}" if e.tempo_bpm else "—",
+                            e.chord_count, format_time(e.audio_duration),
+                            "disponible" if e.file_exists else "no encontrado"))
+                ids[row] = e.id
+            count_label.configure(
+                text=f"{len(entries)} análisis guardados. Los marcados como «no "
+                     f"encontrado» se pueden ver, pero no reproducir.")
+
+        def load_selected():
+            sel = tree.selection()
+            if not sel:
+                return
+            got = self.history.get(ids[sel[0]])
+            if got is None:
+                return
+            result, source_path = got
+            self._on_stop()
+            self._load_audio(source_path if os.path.isfile(source_path) else None)
+            self.analyze_btn.configure(
+                state="normal" if self.audio_path else "disabled")
+            self._clear_results()
+            self._show_result(result)
+            self.status.configure(
+                text=f"Cargado del historial: {os.path.basename(source_path)}"
+                     + ("" if self.audio_path else
+                        " — el audio ya no está en su ruta original, "
+                        "no se puede reproducir."))
+            win.destroy()
+
+        def delete_selected():
+            sel = tree.selection()
+            if not sel:
+                return
+            self.history.delete(ids[sel[0]])
+            refresh()
+
+        def clear_all():
+            if messagebox.askyesno(
+                    "Vaciar historial",
+                    "¿Borrar todos los análisis guardados?\n"
+                    "Los archivos de audio no se tocan, pero habrá que volver a "
+                    "procesarlos.", parent=win):
+                self.history.clear()
+                refresh()
+
+        tree.bind("<Double-Button-1>", lambda _e: load_selected())
+
+        count_label.pack(anchor="w", pady=(10, 0))
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(10, 0))
+        ttk.Button(buttons, text="Cerrar", command=win.destroy).pack(side="right")
+        ttk.Button(buttons, text="Vaciar historial", command=clear_all
+                   ).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Eliminar", command=delete_selected
+                   ).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Cargar", command=load_selected,
+                   style="Accent.TButton").pack(side="right", padx=(0, 8))
+
+        refresh()
         win.grab_set()
         win.focus_set()
         win.bind("<Escape>", lambda _e: win.destroy())
@@ -436,6 +558,11 @@ class ChordApp(ttk.Frame):
         # cambio de tema vive aquí, donde sí se puede estilar.
         self.theme_btn = ttk.Button(bar, command=self._toggle_theme, width=14)
         self.theme_btn.pack(side="right", padx=(0, 8))
+        self.history_btn = ttk.Button(bar, text="Historial",
+                                      command=self._show_history)
+        self.history_btn.pack(side="right", padx=(0, 8))
+        if self.history is None:
+            self.history_btn.configure(state="disabled")
 
     def _build_options(self):
         box = ttk.Labelframe(self, text="Opciones de análisis", padding=8)
@@ -452,6 +579,14 @@ class ChordApp(ttk.Frame):
                         ).grid(row=0, column=2, padx=(0, 8))
         ttk.Checkbutton(box, text="Tempo", variable=self.tempo_var
                         ).grid(row=0, column=3, padx=(0, 16))
+
+        # Sin esto no habría forma de recalcular un archivo ya cacheado.
+        self.force_var = tk.BooleanVar(value=False)
+        self.force_check = ttk.Checkbutton(
+            box, text="Reanalizar (ignorar historial)", variable=self.force_var)
+        self.force_check.grid(row=0, column=7, padx=(16, 0), sticky="e")
+        if self.history is None:
+            self.force_check.grid_remove()
 
         # La separación con Demucs no puede funcionar empaquetada:
         # separate_harmonic() lanza "sys.executable -m demucs", y dentro del .exe
@@ -472,9 +607,9 @@ class ChordApp(ttk.Frame):
             self.device_combo.grid(row=0, column=6, padx=(4, 0))
 
         self.progress = ttk.Progressbar(box, mode="indeterminate")
-        self.progress.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        self.progress.grid(row=1, column=0, columnspan=8, sticky="ew", pady=(10, 0))
         self.status = ttk.Label(box, text="Listo.", style="Muted.TLabel")
-        self.status.grid(row=2, column=0, columnspan=7, sticky="w", pady=(6, 0))
+        self.status.grid(row=2, column=0, columnspan=8, sticky="w", pady=(6, 0))
         box.columnconfigure(6, weight=1)
 
     def _build_summary(self):
@@ -586,14 +721,27 @@ class ChordApp(ttk.Frame):
             messagebox.showerror("Archivo no encontrado", path)
             return
         self._on_stop()
-        self.audio_path = path
-        self.file_label.configure(text=os.path.basename(path), style="TLabel")
+        self._load_audio(path)
         self.analyze_btn.configure(state="normal")
         self.status.configure(text="Archivo cargado. Pulsa «Analizar».")
         self.result = None
         self.duration = 0.0
         self.position = 0.0
         self._clear_results()
+
+    def _load_audio(self, path: str | None):
+        """
+        Deja el audio listo para reproducir sin tocar los resultados. Con None
+        (entrada del historial cuyo archivo ya no está) desactiva el reproductor.
+        """
+        self.audio_path = path
+        if path is None:
+            self.file_label.configure(text="Audio no encontrado",
+                                      style="Muted.TLabel")
+            self.play_btn.configure(state="disabled")
+            self.stop_btn.configure(state="disabled")
+            return
+        self.file_label.configure(text=os.path.basename(path), style="TLabel")
         if self._audio_ready:
             try:
                 pygame.mixer.music.load(path)
@@ -639,13 +787,40 @@ class ChordApp(ttk.Frame):
             separate=self.separate_var.get(),
             device=self.device_var.get(),
         )
-        threading.Thread(target=self._worker, args=(self.audio_path, opts),
+        threading.Thread(target=self._worker,
+                         args=(self.audio_path, opts, self.force_var.get()),
                          daemon=True).start()
         self.after(100, self._poll_worker)
 
-    def _worker(self, path: str, opts: dict):
+    def _worker(self, path: str, opts: dict, force: bool):
+        """
+        Hilo de trabajo: busca en el historial y, si no hay nada, analiza y
+        guarda. El hash y la consulta también van aquí para no bloquear la
+        interfaz.
+        """
         try:
-            self._queue.put(("ok", extract(path, **opts)))
+            result = cached_at = fingerprint = None
+            okey = options_key(opts["method"], opts["with_key"],
+                               opts["with_tempo"], opts["separate"])
+            if self.history is not None:
+                # Un problema del historial nunca debe impedir analizar.
+                try:
+                    fingerprint = History.fingerprint(path)
+                    if not force:
+                        hit = self.history.find(fingerprint, okey)
+                        if hit is not None:
+                            result, cached_at = hit
+                except Exception:
+                    fingerprint = None
+
+            if result is None:
+                result = extract(path, **opts)
+                if self.history is not None and fingerprint:
+                    try:
+                        self.history.save(result, path, fingerprint, okey)
+                    except Exception:
+                        pass
+            self._queue.put(("ok", (result, cached_at)))
         except BaseException as exc:  # el hilo no puede tocar Tk directamente
             self._queue.put(("error", (exc, traceback.format_exc())))
 
@@ -671,7 +846,8 @@ class ChordApp(ttk.Frame):
                        else "\n\n(La traza completa está en la consola.)")
             messagebox.showerror("Error al analizar", detail)
             return
-        self._show_result(payload)
+        result, cached_at = payload
+        self._show_result(result, cached_at=cached_at)
 
     def _set_busy(self, busy: bool):
         self.analyze_btn.configure(state="disabled" if busy else "normal")
@@ -680,7 +856,7 @@ class ChordApp(ttk.Frame):
         else:
             self.progress.stop()
 
-    def _show_result(self, result: ExtractionResult):
+    def _show_result(self, result: ExtractionResult, cached_at=None):
         self.result = result
         self.duration = max((c.end for c in result.chords), default=0.0)
         self.position = 0.0
@@ -691,8 +867,14 @@ class ChordApp(ttk.Frame):
         self.summary.configure(
             text=f"Tonalidad: {key}     Tempo: {tempo}     "
                  f"Acordes: {len(result.chords)}     Método: {result.method}{sep}")
-        self.status.configure(text=f"Análisis completado en {format_time(self.duration)} "
-                                   f"de audio.")
+        if cached_at is not None:
+            self.status.configure(
+                text=f"Recuperado del historial (analizado el "
+                     f"{cached_at:%d/%m/%Y %H:%M}). Marca «Reanalizar» para "
+                     f"recalcularlo.")
+        else:
+            self.status.configure(
+                text=f"Análisis completado en {format_time(self.duration)} de audio.")
 
         self.tree.delete(*self.tree.get_children())
         self._row_ids = []
