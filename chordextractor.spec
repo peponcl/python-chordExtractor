@@ -23,17 +23,68 @@ Puntos delicados que resuelve este spec:
      casilla de separación cuando detecta que corre empaquetada.
 """
 import os
+import re
 import shutil
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 APP_NAME = "ChordExtractor"
+AUTHOR = "pepon"
+SITE = "pepon.cl"
 
 # Los binarios "full_build" de Gyan son estáticos y pesan ~231 MB cada uno, así
 # que ffmpeg+ffprobe son ~70% del bundle. Con CHORDEXTRACTOR_BUNDLE_FFMPEG=0 se
 # omiten: el .exe baja de ~658 MB a ~196 MB, pero entonces el equipo destino
 # necesita ffmpeg instalado y en el PATH (si no, solo podrá abrir WAV).
 BUNDLE_FFMPEG = os.environ.get("CHORDEXTRACTOR_BUNDLE_FFMPEG", "1") != "0"
+
+
+def app_version():
+    """Lee APP_VERSION de gui.py: una sola fuente para la versión."""
+    with open("gui.py", encoding="utf-8") as fh:
+        match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', fh.read(), re.M)
+    return match.group(1) if match else "0.0"
+
+
+def write_version_resource(version):
+    """
+    Genera el recurso de versión de Windows. Sin él, el ejecutable sale sin
+    empresa, producto ni descripción: un binario anónimo, que es justo el perfil
+    que penalizan las heurísticas de reputación de SmartScreen. No sustituye a
+    una firma de código, pero es gratis y hace que las Propiedades del archivo
+    digan algo.
+    """
+    numbers = [int(n) for n in version.split(".")]
+    while len(numbers) < 4:
+        numbers.append(0)
+    quad = tuple(numbers[:4])
+    dotted = ".".join(str(n) for n in quad)
+
+    # 340a = español (Chile), 04b0 = Unicode
+    content = f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={quad}, prodvers={quad}, mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('340a04b0', [
+        StringStruct('CompanyName', '{AUTHOR}'),
+        StringStruct('FileDescription',
+                     'Extractor de acordes, tonalidad y tempo desde audio'),
+        StringStruct('FileVersion', '{dotted}'),
+        StringStruct('InternalName', '{APP_NAME}'),
+        StringStruct('LegalCopyright', '{AUTHOR} — {SITE}'),
+        StringStruct('OriginalFilename', '{APP_NAME}.exe'),
+        StringStruct('ProductName', 'Chord Extractor'),
+        StringStruct('ProductVersion', '{dotted}'),
+    ])]),
+    VarFileInfo([VarStruct('Translation', [0x340a, 1200])])
+  ]
+)
+"""
+    os.makedirs("build", exist_ok=True)
+    path = os.path.join("build", "version_info.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    return path
 
 
 def find_tool(name):
@@ -49,6 +100,11 @@ def find_tool(name):
                 return os.path.join(root, f"{name}.exe")
     return None
 
+
+# --- versión y metadatos ----------------------------------------------------
+APP_VERSION = app_version()
+VERSION_FILE = write_version_resource(APP_VERSION)
+print(f"[spec] versión {APP_VERSION} (leída de gui.py) -> {VERSION_FILE}")
 
 # --- ffmpeg / ffprobe -------------------------------------------------------
 # Hacen falta LOS DOS: madmom decodifica con ffmpeg, pero antes consulta el
@@ -116,6 +172,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,          # pon aquí la ruta a un .ico si quieres icono propio
+    version=VERSION_FILE,
 )
 
 coll = COLLECT(
