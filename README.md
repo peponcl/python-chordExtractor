@@ -30,6 +30,28 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `make_test_audio.py` — genera un WAV/MP3 sintético de acordes conocidos para
   validar la instalación.
 
+## Instalación — script automático (Windows)
+
+```powershell
+.\packaging\instalar-entorno.ps1
+```
+
+Comprueba e instala Python 3.12, git, ffmpeg y yt-dlp, crea el entorno virtual,
+instala las dependencias en el orden correcto y verifica el resultado analizando
+un audio sintético de acordes conocidos (`C → G → Am → F`). Es idempotente.
+
+El único requisito que no instala solo es el **compilador de C++**, porque son
+varios GB: si falta, te dice cómo obtenerlo. Hace falta porque madmom trae cuatro
+extensiones Cython que se compilan al instalarlo.
+
+Opciones: `-SinHerramientas` (sólo comprueba, no instala nada con winget),
+`-ConDemucs`, `-VenvPath <ruta>`.
+
+> Con Visual Studio 2026, su `vcvarsall.bat` invoca `vswhere.exe` sin ruta
+> absoluta. Si no está en el PATH devuelve un entorno vacío y la compilación
+> falla con «Unable to find a compatible Visual Studio installation», aunque
+> `cl.exe` esté perfectamente instalado. El script lo añade al PATH por ti.
+
 ## Instalación
 
 El único punto delicado es **madmom**. La versión de PyPI (0.16.1) no compila en
