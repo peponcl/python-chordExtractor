@@ -427,6 +427,21 @@ class ChordApp(ttk.Frame):
         win.bind("<Escape>", lambda _e: win.destroy())
 
     def _show_url_dialog(self):
+        # refresh=True por si lo acabas de instalar mientras la app estaba abierta.
+        if ytaudio.find_ytdlp(refresh=True) is None:
+            messagebox.showinfo(
+                "Falta yt-dlp",
+                "Para cargar audio desde una URL hace falta yt-dlp, que se "
+                "instala aparte:\n\n"
+                "    winget install yt-dlp        (Windows)\n"
+                "    sudo dnf install yt-dlp      (Fedora)\n\n"
+                "Se usa como programa externo, en vez de venir incluido, para "
+                "que puedas actualizarlo por tu cuenta: los sitios cambian cada "
+                "pocas semanas y una versión congelada dejaría de funcionar.\n\n"
+                "Si acabas de instalarlo y sigue sin detectarse, cierra y vuelve "
+                "a abrir la aplicación.")
+            return
+
         win = tk.Toplevel(self.master)
         win.title("Abrir audio desde una URL")
         win.configure(bg=self.colors["bg"])
@@ -774,10 +789,10 @@ class ChordApp(ttk.Frame):
         bar.pack(fill="x")
 
         ttk.Button(bar, text="Abrir audio…", command=self._on_open).pack(side="left")
-        # yt-dlp es opcional y externo: si no está, la función no existe.
-        if ytaudio.find_ytdlp():
-            ttk.Button(bar, text="Desde URL…", command=self._show_url_dialog
-                       ).pack(side="left", padx=(8, 0))
+        # El botón está siempre: si yt-dlp falta, el diálogo explica cómo
+        # instalarlo. Ocultarlo dejaba al usuario sin saber por qué no aparecía.
+        ttk.Button(bar, text="Desde URL…", command=self._show_url_dialog
+                   ).pack(side="left", padx=(8, 0))
         self.file_label = ttk.Label(bar, text="Ningún archivo seleccionado",
                                     style="Muted.TLabel")
         self.file_label.pack(side="left", padx=10)

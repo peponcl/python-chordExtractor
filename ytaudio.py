@@ -76,9 +76,42 @@ class VideoInfo:
         return self.duration > LONG_AUDIO_SECONDS
 
 
-def find_ytdlp() -> Optional[str]:
-    """Ruta al ejecutable de yt-dlp, o None si no está instalado."""
-    return shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+_ytdlp_cache: list = []          # [] = sin buscar todavía; [None] = no está
+
+
+def _winget_candidates(name: str) -> list[str]:
+    """
+    Rutas donde winget deja los ejecutables. Hace falta mirarlas porque winget
+    añade la carpeta al PATH *persistente*, pero los procesos ya abiertos siguen
+    con el PATH viejo: recién instalado, shutil.which() no lo encuentra hasta
+    que cierras la sesión.
+    """
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return []
+    base = os.path.join(local, "Microsoft", "WinGet")
+    patterns = [
+        os.path.join(base, "Links", f"{name}.exe"),
+        os.path.join(base, "Packages", "*", f"{name}.exe"),
+        os.path.join(base, "Packages", "*", "*", f"{name}.exe"),
+        os.path.join(base, "Packages", "*", "*", "*", f"{name}.exe"),
+    ]
+    found = []
+    for pattern in patterns:
+        found.extend(glob.glob(pattern))
+    return found
+
+
+def find_ytdlp(refresh: bool = False) -> Optional[str]:
+    """Ruta al ejecutable de yt-dlp, o None si no se encuentra."""
+    if _ytdlp_cache and not refresh:
+        return _ytdlp_cache[0]
+    found = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+    if not found and sys.platform == "win32":
+        candidates = _winget_candidates("yt-dlp")
+        found = candidates[0] if candidates else None
+    _ytdlp_cache[:] = [found]
+    return found
 
 
 def _run(args: list[str], on_line: Optional[Callable[[str], None]] = None) -> str:
