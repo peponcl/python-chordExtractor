@@ -12,6 +12,14 @@ fastapi
 uvicorn[standard]
 python-multipart
 
+# --- Descarga desde URL (OPCIONAL) ---
+# yt-dlp NO se instala como dependencia del proyecto ni se empaqueta en el .exe:
+# se usa como ejecutable externo para poder actualizarlo por separado, porque los
+# sitios cambian cada pocas semanas y un yt-dlp congelado deja de funcionar.
+#   winget install yt-dlp        (Windows)
+#   sudo dnf install yt-dlp      (Fedora)
+# Si no está en el PATH, el botón «Desde URL…» simplemente no aparece.
+
 # --- Interfaz de escritorio (opcional, solo si usas gui.py) ---
 # Tkinter viene con Python, pero en Fedora es un paquete aparte:
 #   dnf install python3-tkinter

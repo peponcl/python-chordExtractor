@@ -22,6 +22,7 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `web/index.html` — interfaz web, servida por `server.py` en la raíz.
 - `chordviz.py` — colores y etiquetas de acorde compartidos por ambas interfaces.
 - `history.py` — historial y caché de análisis en SQLite.
+- `ytaudio.py` — descarga de audio desde una URL con `yt-dlp` (opcional).
 - `chordextractor.spec` + `packaging/` — receta de PyInstaller para distribuir la
   GUI como ejecutable autónomo.
 - `server.py` — API FastAPI mínima (`POST /extract` con el archivo subido).
@@ -69,6 +70,9 @@ que la ventana no se congela. Verás:
 - un **reproductor** cuyo cursor recorre la línea de tiempo, resalta la fila del
   acorde que suena y lo muestra en grande. Haz clic en la línea de tiempo o en
   una fila para saltar a ese punto;
+- **audio desde una URL** (si tienes `yt-dlp` instalado): el botón «Desde URL…»
+  descarga la pista, la deja lista para analizar y la trata igual que un archivo
+  local. Ver la sección siguiente;
 - **historial y caché**: cada análisis se guarda, y si vuelves a pulsar
   «Analizar» sobre un archivo ya procesado con las mismas opciones, el resultado
   aparece al instante en vez de reprocesarlo. El botón **Historial** abre la
@@ -84,6 +88,42 @@ Sin `pygame` todo lo demás funciona igual: solo se desactiva la reproducción.
 En el ejecutable empaquetado no aparecen la casilla de Demucs ni el selector de
 dispositivo: la separación no puede funcionar ahí (ver la sección de
 distribución), así que no se construyen esos controles.
+
+## Audio desde una URL (opcional)
+
+Con `yt-dlp` instalado aparece el botón **«Desde URL…»** en la barra superior.
+Pegas el enlace, se consultan los metadatos, y tras confirmar se descarga sólo la
+pista de audio a `%LOCALAPPDATA%\ChordExtractor\downloads\`.
+
+```bash
+winget install yt-dlp        # o: sudo dnf install yt-dlp
+```
+
+Ten en cuenta que descargar contenido de YouTube va contra sus Términos de
+Servicio salvo con la descarga offline de Premium.
+
+**Formato.** Si la pista viene en Opus —lo habitual— se **remuxea a `.opus`**:
+sólo cambia el contenedor, el códec queda intacto, así que es instantáneo y sin
+pérdida. Si viene en AAC hay que transcodificar a MP3, porque un contenedor Ogg
+no admite AAC.
+
+Dos detalles que costaron encontrarse y conviene no deshacer:
+
+- La extensión **tiene que ser `.opus`, no `.ogg`**. SDL_mixer (pygame) elige el
+  decodificador por la extensión, y ante un `.ogg` usa el de Vorbis, que falla
+  con `VORBIS_invalid_first_page` aunque el Opus de dentro sea perfectamente
+  válido.
+- No sirve dejar el `.m4a`/`.webm` original: madmom los analiza sin problema,
+  pero pygame no reproduce ni AAC ni WebM, y el reproductor quedaría inservible.
+
+**Duración.** El análisis carga la señal entera en memoria y el consumo escala de
+forma lineal: medido, 520 MB a 2 min, 1204 MB a 5 y 2344 MB a 10 (unos 3,8 MB por
+segundo de audio). Un vídeo de una hora pediría ~13 GB. Por eso el diálogo estima
+memoria y tiempo antes de descargar, y pide confirmación por encima de 10 minutos.
+
+El audio descargado se cachea por id de vídeo, así que volver a pegar el mismo
+enlace no vuelve a descargar nada. Y como el historial identifica los archivos
+por el hash de su contenido, el análisis también se reutiliza.
 
 ## Uso — interfaz web
 

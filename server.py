@@ -36,7 +36,7 @@ from chord_extractor import extract
 
 app = FastAPI(title="Chord Extractor API", version="0.1.0")
 
-ALLOWED_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
+ALLOWED_EXT = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wma"}
 MAX_BYTES = 30 * 1024 * 1024  # 30 MB
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 

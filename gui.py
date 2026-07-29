@@ -32,6 +32,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from chord_extractor import ExtractionResult, extract
 from history import History, HistoryUnavailable, options_key
+import ytaudio
 from chordviz import (
     color_for,
     format_time,
@@ -47,7 +48,7 @@ except ImportError:  # el reproductor es opcional
     pygame = None
 
 AUDIO_TYPES = [
-    ("Audio", "*.mp3 *.wav *.flac *.ogg *.m4a *.aac *.wma"),
+    ("Audio", "*.mp3 *.wav *.flac *.ogg *.opus *.m4a *.aac *.wma"),
     ("Todos los archivos", "*.*"),
 ]
 
@@ -425,6 +426,167 @@ class ChordApp(ttk.Frame):
         win.focus_set()
         win.bind("<Escape>", lambda _e: win.destroy())
 
+    def _show_url_dialog(self):
+        win = tk.Toplevel(self.master)
+        win.title("Abrir audio desde una URL")
+        win.configure(bg=self.colors["bg"])
+        set_dark_titlebar(win, self.colors["dark_titlebar"])
+        win.resizable(False, False)
+        win.transient(self.master)
+
+        body = ttk.Frame(win, padding=20)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text="Pega el enlace del vídeo",
+                  font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(body, style="Muted.TLabel", justify="left",
+                  text="Se descarga sólo la pista de audio. Si viene en Opus se "
+                       "cambia de contenedor a .opus sin recodificar;\nsi viene "
+                       "en AAC hay que convertirla a MP3, porque el reproductor "
+                       "no admite AAC.").pack(anchor="w", pady=(4, 12))
+
+        url_var = tk.StringVar()
+        url_entry = ttk.Entry(body, textvariable=url_var, width=64)
+        url_entry.pack(fill="x")
+
+        info_label = ttk.Label(body, style="Muted.TLabel", justify="left")
+        info_label.pack(anchor="w", pady=(12, 0))
+        progress = ttk.Progressbar(body, mode="determinate", maximum=100)
+        progress.pack(fill="x", pady=(12, 0))
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(16, 0))
+        cancel_btn = ttk.Button(buttons, text="Cancelar", command=win.destroy)
+        cancel_btn.pack(side="right")
+        action_btn = ttk.Button(buttons, text="Consultar", style="Accent.TButton")
+        action_btn.pack(side="right", padx=(0, 8))
+
+        state: dict = {"info": None, "busy": False}
+        queue_ = queue.Queue()
+
+        def set_busy(busy: bool, text: str = ""):
+            state["busy"] = busy
+            action_btn.configure(state="disabled" if busy else "normal")
+            url_entry.configure(state="disabled" if busy else "normal")
+            if text:
+                info_label.configure(text=text)
+
+        def poll():
+            try:
+                kind, payload = queue_.get_nowait()
+            except queue.Empty:
+                if state["busy"]:
+                    win.after(80, poll)
+                return
+
+            if kind == "progress":
+                progress.configure(value=payload)
+                info_label.configure(
+                    text=f"Descargando… {payload:.0f} %")
+                win.after(80, poll)
+                return
+
+            set_busy(False)
+            if kind == "error":
+                exc, trace = payload
+                report_error(trace)
+                info_label.configure(text=f"Error: {exc}")
+                messagebox.showerror("No se pudo obtener el audio", str(exc),
+                                     parent=win)
+                return
+
+            if kind == "info":
+                info = state["info"] = payload
+                minutes = format_time(info.duration)
+                ram = info.estimated_ram_mb / 1024
+                secs = info.estimated_analysis_seconds
+                detail = (f"{info.title}\n"
+                          f"{info.uploader} · {minutes}\n"
+                          f"Pista: {'Opus → .opus sin recodificar' if info.has_opus else 'AAC → hay que convertir a MP3'}\n"
+                          f"Análisis estimado: ~{ram:.1f} GB de RAM y ~{format_time(secs)}")
+                if info.is_long:
+                    detail += ("\n\n⚠  Es un audio largo. El análisis carga la señal "
+                               "entera en memoria,\n    así que puede agotar la RAM "
+                               "del equipo.")
+                info_label.configure(text=detail)
+                action_btn.configure(text="Descargar y cargar")
+                return
+
+            if kind == "downloaded":
+                path, info = payload
+                win.destroy()
+                self._on_stop()
+                self._load_audio(path)
+                self.analyze_btn.configure(state="normal")
+                self.result = None
+                self.duration = 0.0
+                self.position = 0.0
+                self._clear_results()
+                self.status.configure(
+                    text=f"Descargado: {info.title} — pulsa «Analizar».")
+
+        def work_probe(url):
+            try:
+                queue_.put(("info", ytaudio.probe(url)))
+            except BaseException as exc:
+                queue_.put(("error", (exc, traceback.format_exc())))
+
+        def work_download(url, info):
+            try:
+                path = ytaudio.download(
+                    url, self._downloads_dir(), info,
+                    on_progress=lambda pct: queue_.put(("progress", pct)))
+                queue_.put(("downloaded", (path, info)))
+            except BaseException as exc:
+                queue_.put(("error", (exc, traceback.format_exc())))
+
+        def on_action():
+            url = url_var.get().strip()
+            if not url:
+                return
+            info = state["info"]
+            if info is None:
+                set_busy(True, "Consultando el enlace…")
+                target, args = work_probe, (url,)
+            else:
+                if info.is_long and not messagebox.askyesno(
+                        "Audio largo",
+                        f"«{info.title}» dura {format_time(info.duration)}.\n\n"
+                        f"El análisis necesitará unos "
+                        f"{info.estimated_ram_mb / 1024:.1f} GB de RAM y "
+                        f"{format_time(info.estimated_analysis_seconds)}.\n"
+                        f"¿Continuar de todas formas?",
+                        parent=win, default="no", icon="warning"):
+                    return
+                set_busy(True, "Descargando…")
+                target, args = work_download, (url, info)
+            threading.Thread(target=target, args=args, daemon=True).start()
+            win.after(80, poll)
+
+        def on_url_change(*_a):
+            # Si cambia la URL, la consulta anterior ya no vale.
+            state["info"] = None
+            action_btn.configure(text="Consultar")
+            progress.configure(value=0)
+
+        url_var.trace_add("write", on_url_change)
+        action_btn.configure(command=on_action)
+        url_entry.bind("<Return>", lambda _e: on_action())
+
+        win.update_idletasks()
+        x = self.master.winfo_rootx() + (self.master.winfo_width() - win.winfo_width()) // 2
+        y = self.master.winfo_rooty() + (self.master.winfo_height() - win.winfo_height()) // 3
+        win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        win.grab_set()
+        url_entry.focus_set()
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+    @staticmethod
+    def _downloads_dir() -> str:
+        directory = os.path.join(app_dir(), "downloads")
+        os.makedirs(directory, exist_ok=True)
+        return directory
+
     def _show_history(self):
         if self.history is None:
             return
@@ -612,6 +774,10 @@ class ChordApp(ttk.Frame):
         bar.pack(fill="x")
 
         ttk.Button(bar, text="Abrir audio…", command=self._on_open).pack(side="left")
+        # yt-dlp es opcional y externo: si no está, la función no existe.
+        if ytaudio.find_ytdlp():
+            ttk.Button(bar, text="Desde URL…", command=self._show_url_dialog
+                       ).pack(side="left", padx=(8, 0))
         self.file_label = ttk.Label(bar, text="Ningún archivo seleccionado",
                                     style="Muted.TLabel")
         self.file_label.pack(side="left", padx=10)
