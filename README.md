@@ -30,6 +30,32 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `make_test_audio.py` — genera un WAV/MP3 sintético de acordes conocidos para
   validar la instalación.
 
+## Cómo empezar — resumen
+
+Tres caminos según lo que quieras hacer:
+
+| Quiero… | Haz esto | Necesitas |
+|---|---|---|
+| **Solo usarlo** en Windows | Descarga la carpeta `ChordExtractor`, descomprime y ejecuta `ChordExtractor.exe` | Nada. Windows avisará: ver más abajo |
+| **Ejecutarlo desde el código** en Windows | `.\packaging\instalar-entorno.ps1` | Compilador de C++ |
+| **Ejecutarlo en Fedora** | `./packaging/instalar-entorno.sh` | Solo `sudo` para los paquetes |
+
+Los dos scripts hacen lo mismo: comprueban las herramientas, instalan lo que
+falte, crean el entorno virtual y verifican el resultado analizando un audio
+sintético de acordes conocidos. Si terminan con `4 de 4`, funciona.
+
+**Al ejecutar el `.exe`, Windows mostrará una advertencia** porque no está
+firmado. En la mayoría de equipos aparece SmartScreen, que se salta con *Más
+información → Ejecutar de todas formas*. En equipos con Smart App Control
+activado no hay forma de saltarlo: ahí toca usar el código fuente.
+
+Lo único que no se instala solo es el **compilador de C++** en Windows, porque
+son varios GB. Hace falta porque madmom trae cuatro extensiones que se compilan
+al instalarlo. En Fedora es `gcc` y sí lo instala el script.
+
+Y ojo con la versión de Python: **3.12 como máximo**, nunca 3.13 o superior. El
+motivo está explicado más abajo.
+
 ## Instalación — script automático (Windows)
 
 ```powershell
@@ -52,7 +78,23 @@ Opciones: `-SinHerramientas` (sólo comprueba, no instala nada con winget),
 > falla con «Unable to find a compatible Visual Studio installation», aunque
 > `cl.exe` esté perfectamente instalado. El script lo añade al PATH por ti.
 
-## Instalación
+## Instalación — script automático (Fedora)
+
+```bash
+./packaging/instalar-entorno.sh
+```
+
+Instala con `dnf` lo que falte —`python3.12`, `python3.12-devel`,
+`python3.12-tkinter`, `gcc`, `gcc-c++`, `make`, `git`, `ffmpeg-free`, `yt-dlp`—,
+crea el entorno virtual y verifica el resultado igual que su equivalente de
+Windows.
+
+Fedora reciente trae Python 3.13 por defecto, por eso instala 3.12 aparte: es el
+máximo que admite `numpy<2`. El script aborta si el entorno no acaba siendo 3.12.
+
+Opciones: `--sin-herramientas`, `--con-demucs`, `--venv <ruta>`.
+
+## Instalación manual
 
 El único punto delicado es **madmom**. La versión de PyPI (0.16.1) no compila en
 Python 3.10+. Hay que instalar desde git y fijar numpy < 2:
