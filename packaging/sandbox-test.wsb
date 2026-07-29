@@ -30,6 +30,18 @@
       <SandboxFolder>C:\proyecto</SandboxFolder>
       <ReadOnly>true</ReadOnly>
     </MappedFolder>
+    <!--
+      El sandbox es un Windows recién creado: no tiene yt-dlp ni winget, así que
+      «Desde URL…» avisaría de que falta. Montando la carpeta del anfitrión,
+      sandbox-launch.cmd la añade al PATH y la función se puede probar.
+      Ajusta esta ruta si tu yt-dlp está en otro sitio, o borra el bloque entero
+      si no quieres probar la descarga desde URL.
+    -->
+    <MappedFolder>
+      <HostFolder>C:\Users\pepe_\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe</HostFolder>
+      <SandboxFolder>C:\herramientas\yt-dlp</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
   </MappedFolders>
 
   <!-- El análisis necesita ~2,4 GB para 10 minutos de audio; 8 GB dan holgura. -->
@@ -41,7 +53,8 @@
   <VideoInput>Disable</VideoInput>
   <ProtectedClient>Disable</ProtectedClient>
 
+  <!-- Se lanza a través del .cmd para poder poner yt-dlp en el PATH antes. -->
   <LogonCommand>
-    <Command>C:\ChordExtractor\ChordExtractor.exe</Command>
+    <Command>C:\proyecto\packaging\sandbox-launch.cmd</Command>
   </LogonCommand>
 </Configuration>
