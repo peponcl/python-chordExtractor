@@ -187,6 +187,26 @@ set CHORDEXTRACTOR_BUNDLE_FFMPEG=0 && venv312\Scripts\pyinstaller chordextractor
 
 Baja a ~196 MB, pero sin ffmpeg en el PATH del destino solo se podrán abrir WAV.
 
+### Windows bloquea el ejecutable
+
+El `.exe` no está firmado, así que Windows desconfía. Hay dos protecciones
+distintas y conviene no confundirlas:
+
+- **SmartScreen** («Windows protegió su PC») es lo que verá la mayoría. Molesta,
+  pero tiene salida: *Más información → Ejecutar de todas formas*.
+- **Smart App Control** bloquea sin alternativa: no admite excepciones. Solo está
+  activo en instalaciones limpias de Windows 11 22H2+, y se desactiva de forma
+  permanente en cuanto alguien lo apaga.
+
+El spec incrusta metadatos de versión (empresa, producto, descripción), que es lo
+correcto y ayuda algo con las heurísticas, pero **no sustituye a una firma de
+código**. La solución real es un certificado; existen programas de firma gratuita
+para proyectos de código abierto que conviene mirar antes de pagar uno comercial.
+
+Para probar el ejecutable como lo vería otra persona, sin tocar la seguridad de
+tu equipo, usa `packaging/sandbox-test.wsb` con Windows Sandbox (requiere
+Windows 11 Pro).
+
 ### Errores en el ejecutable
 
 El build es *windowed* (sin consola), así que `sys.stderr` no existe: los fallos

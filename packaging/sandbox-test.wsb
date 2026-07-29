@@ -1,0 +1,47 @@
+<!--
+  sandbox-test.wsb — prueba el ejecutable en Windows Sandbox.
+
+  Windows Sandbox es un Windows desechable y aislado: se crea limpio al abrirlo
+  y se destruye al cerrarlo. Sirve para comprobar cómo se comporta el .exe en un
+  equipo ajeno sin tocar la seguridad del anfitrión, que es justo lo que hace
+  falta cuando Smart App Control bloquea el binario sin firmar en tu máquina.
+
+  Requisitos: Windows 11 Pro (en Home no existe) y activar la característica:
+      Panel de control → Programas → Activar o desactivar características
+      de Windows → Espacio aislado de Windows
+  o desde PowerShell como administrador:
+      Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM" -All
+
+  Uso: doble clic en este archivo. Se abre el sandbox, y dentro tendrás la
+  carpeta del ejecutable en C:\ChordExtractor y los audios de prueba en
+  C:\proyecto.
+
+  Ajusta HostFolder si mueves el proyecto de sitio.
+-->
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Proyectos\python\chordExtractor\dist\ChordExtractor</HostFolder>
+      <SandboxFolder>C:\ChordExtractor</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>C:\Proyectos\python\chordExtractor</HostFolder>
+      <SandboxFolder>C:\proyecto</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+
+  <!-- El análisis necesita ~2,4 GB para 10 minutos de audio; 8 GB dan holgura. -->
+  <MemoryInMB>8192</MemoryInMB>
+
+  <!-- Hace falta red si quieres probar también la descarga desde una URL. -->
+  <Networking>Enable</Networking>
+  <AudioInput>Disable</AudioInput>
+  <VideoInput>Disable</VideoInput>
+  <ProtectedClient>Disable</ProtectedClient>
+
+  <LogonCommand>
+    <Command>C:\ChordExtractor\ChordExtractor.exe</Command>
+  </LogonCommand>
+</Configuration>
