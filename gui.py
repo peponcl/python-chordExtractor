@@ -30,6 +30,7 @@ import traceback
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
+import chordpro
 from chord_extractor import ExtractionResult, extract
 from history import History, HistoryUnavailable, options_key
 import lyrics as letras
@@ -603,6 +604,108 @@ class ChordApp(ttk.Frame):
         os.makedirs(directory, exist_ok=True)
         return directory
 
+    def _show_chordpro_viewer(self, texto: str, titulo: str = "Hoja de acordes"):
+        """
+        Muestra la hoja en el formato clásico de dos filas: acordes encima,
+        letra debajo. Antes sólo se ofrecía el diálogo de guardar, así que había
+        que abrir el archivo por fuera para ver qué había salido.
+        """
+        win = tk.Toplevel(self.master)
+        win.title(titulo)
+        win.configure(bg=self.colors["bg"])
+        set_dark_titlebar(win, self.colors["dark_titlebar"])
+        win.geometry("820x660")
+        win.transient(self.master)
+
+        body = ttk.Frame(win, padding=14)
+        body.pack(fill="both", expand=True)
+
+        barra = ttk.Frame(body)
+        barra.pack(fill="x", pady=(0, 10))
+        ttk.Label(barra, text="Transportar:").pack(side="left")
+        semis = {"n": 0}
+        etiqueta = ttk.Label(barra, text="0", width=4, anchor="center",
+                             font=("Segoe UI", 10, "bold"))
+
+        caja = ttk.Frame(body)
+        caja.pack(fill="both", expand=True)
+        # Monoespaciada obligatoriamente: la alineación de los acordes sobre las
+        # sílabas se sostiene sobre que todos los caracteres midan lo mismo.
+        vista = tk.Text(caja, wrap="none", relief="flat", padx=10, pady=10,
+                        bg=self.colors["panel"], fg=self.colors["text"],
+                        insertbackground=self.colors["text"],
+                        font=("Consolas", 11))
+        vscroll = ttk.Scrollbar(caja, orient="vertical", command=vista.yview)
+        hscroll = ttk.Scrollbar(body, orient="horizontal", command=vista.xview)
+        vista.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        vista.pack(side="left", fill="both", expand=True)
+        vscroll.pack(side="right", fill="y")
+        hscroll.pack(fill="x")
+        vista.tag_configure("acordes", foreground=self.colors["accent"])
+        vista.tag_configure("cabecera", foreground=self.colors["muted"])
+
+        def pintar():
+            hoja = chordpro.parsear(texto, semis["n"])
+            vista.configure(state="normal")
+            vista.delete("1.0", "end")
+            if hoja.directivas.get("title"):
+                vista.insert("end", hoja.titulo + "\n",
+                             ("cabecera",))
+            info = "   ".join(
+                f"{e}: {hoja.directivas[c]}"
+                for c, e in (("key", "Tonalidad"), ("tempo", "Tempo"))
+                if hoja.directivas.get(c))
+            if info:
+                extra = f"   (transportado {semis['n']:+d})" if semis["n"] else ""
+                vista.insert("end", info + extra + "\n", ("cabecera",))
+            vista.insert("end", "\n")
+            for bloque in hoja.bloques:
+                if bloque.en_blanco:
+                    vista.insert("end", "\n")
+                elif bloque.comentario is not None:
+                    vista.insert("end", bloque.comentario + "\n", ("cabecera",))
+                else:
+                    if bloque.acordes:
+                        vista.insert("end", bloque.acordes + "\n", ("acordes",))
+                    if bloque.letra:
+                        vista.insert("end", bloque.letra + "\n")
+            vista.configure(state="disabled")
+            etiqueta.configure(text=f"{semis['n']:+d}" if semis["n"] else "0")
+
+        def mover(paso):
+            semis["n"] = max(-11, min(11, semis["n"] + paso))
+            pintar()
+
+        ttk.Button(barra, text="−", width=3, command=lambda: mover(-1)
+                   ).pack(side="left", padx=(8, 2))
+        etiqueta.pack(side="left")
+        ttk.Button(barra, text="+", width=3, command=lambda: mover(1)
+                   ).pack(side="left", padx=(2, 8))
+        ttk.Button(barra, text="Original", command=lambda: mover(-semis["n"])
+                   ).pack(side="left")
+        ttk.Label(barra, style="Muted.TLabel",
+                  text="· semitonos").pack(side="left", padx=(8, 0))
+
+        def guardar_cho():
+            self._export("Hoja de acordes ChordPro", ".cho",
+                         chordpro.transponer_texto(texto, semis["n"]))
+
+        def guardar_txt():
+            self._export("Texto plano", ".txt",
+                         chordpro.a_texto(chordpro.parsear(texto, semis["n"])))
+
+        botones = ttk.Frame(body)
+        botones.pack(fill="x", pady=(12, 0))
+        ttk.Button(botones, text="Cerrar", command=win.destroy).pack(side="right")
+        ttk.Button(botones, text="Guardar texto", command=guardar_txt
+                   ).pack(side="right", padx=(0, 8))
+        ttk.Button(botones, text="Guardar .cho", command=guardar_cho,
+                   style="Accent.TButton").pack(side="right", padx=(0, 8))
+
+        pintar()
+        win.grab_set()
+        win.bind("<Escape>", lambda _e: win.destroy())
+
     def _show_lyrics_dialog(self):
         if not self.result or not self.audio_path:
             return
@@ -828,8 +931,8 @@ class ChordApp(ttk.Frame):
     def _guardar_hoja_con_letra(self, lineas):
         if not self.result:
             return
-        self._export("Hoja de acordes con letra", ".cho",
-                     self.result.to_chordpro_con_letra(lineas))
+        self._show_chordpro_viewer(self.result.to_chordpro_con_letra(lineas),
+                                   "Hoja de acordes con letra")
 
     def _show_history(self):
         if self.history is None:
@@ -1614,8 +1717,8 @@ class ChordApp(ttk.Frame):
 
     def _on_export_chordpro(self):
         if self.result:
-            self._export("Hoja de acordes ChordPro", ".cho",
-                         self.result.to_chordpro())
+            self._show_chordpro_viewer(self.result.to_chordpro(),
+                                       "Hoja de acordes")
 
 
 def main():

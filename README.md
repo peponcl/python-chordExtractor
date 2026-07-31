@@ -22,6 +22,7 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `web/index.html` — interfaz web, servida por `server.py` en la raíz.
 - `chordviz.py` — colores y etiquetas de acorde compartidos por ambas interfaces.
 - `history.py` — historial y caché de análisis en SQLite.
+- `chordpro.py` — lectura, renderizado y transporte de hojas ChordPro.
 - `ytaudio.py` — descarga de audio desde una URL con `yt-dlp` (opcional).
 - `lyrics.py` — transcripción y alineamiento de la letra (opcional).
 - `chordextractor.spec` + `packaging/` — receta de PyInstaller para distribuir la
@@ -321,6 +322,22 @@ interfaces.
 
 Los acordes se agrupan de cuatro en cuatro (ajustable con `--por-linea`), y cada
 grupo lleva el minuto en que empieza para poder seguir la canción mientras suena.
+
+### Visor
+
+Los botones de hoja de acordes no van directos al diálogo de guardar: abren un
+**visor** con el formato clásico de dos filas, acordes encima y letra debajo,
+que es como se lee de verdad una hoja.
+
+```
+Em       E
+Cielo de plomo sobre el cerro
+```
+
+Lleva **transporte** con los botones `−` / `+` (±11 semitonos) y se guarda
+respetando el tono elegido, en `.cho` o en texto plano. La vista usa tipografía
+monoespaciada porque la alineación de los acordes sobre las sílabas depende de
+que todos los caracteres midan lo mismo.
 
 ### Con letra
 
