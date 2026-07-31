@@ -360,6 +360,21 @@ En el ejecutable empaquetado hace falta que haya **Python instalado en el
 sistema** para poder montar ese entorno, porque el `.exe` no lleva pip. Si no lo
 hay, la aplicación lo dice y explica cómo instalarlo.
 
+#### Separar la voz antes de transcribir
+
+La casilla **«Separar la voz con Demucs»** aísla la voz de la mezcla y transcribe
+sobre ella. Con guitarras densas, batería fuerte o voz agresiva mejora bastante
+los tiempos, que es justo lo que aprovecha el alineamiento.
+
+Ojo con el sentido: aquí interesa el stem de **voz**, lo contrario que en la
+detección de acordes, que analiza `bass + other` precisamente para quitarse la
+voz de encima.
+
+El coste es real: Demucs arrastra PyTorch (varios GB) y en CPU tarda minutos por
+canción. Se instala desde la misma casilla, y el wav de voz queda cacheado en
+`%LOCALAPPDATA%\ChordExtractor\voz\` para no repetir la separación del mismo
+archivo.
+
 > Sobre publicar: los acordes no son problema, una progresión no es material
 > protegible. Las letras sí lo son, y publicar la de una canción ajena requiere
 > licencia. Para uso propio, o para tus propias canciones, no hay inconveniente.

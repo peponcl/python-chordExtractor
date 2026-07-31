@@ -657,6 +657,17 @@ class ChordApp(ttk.Frame):
                      values=["auto", "es", "en", "pt", "fr", "it"]
                      ).pack(side="left", padx=(6, 0))
 
+        demucs_var = tk.BooleanVar(value=False)
+        fila_demucs = ttk.Frame(body)
+        fila_demucs.pack(fill="x", pady=(10, 0))
+        ttk.Checkbutton(fila_demucs, variable=demucs_var,
+                        command=lambda: refrescar_accion(),
+                        text="Separar la voz con Demucs antes de transcribir"
+                        ).pack(side="left")
+        ttk.Label(fila_demucs, style="Muted.TLabel",
+                  text="· mucho mejor con mezclas densas, pero tarda minutos y "
+                       "arrastra PyTorch (varios GB)").pack(side="left", padx=(6, 0))
+
         estado = ttk.Label(body, style="Muted.TLabel", justify="left", text="")
         estado.pack(anchor="w", pady=(12, 0))
         progreso = ttk.Progressbar(body, mode="indeterminate")
@@ -677,19 +688,38 @@ class ChordApp(ttk.Frame):
             except Exception:
                 return False
 
+        def faltantes() -> list[tuple[str, str, str]]:
+            """(nombre visible, paquete pip, módulo) de lo que falte instalar."""
+            pendiente = []
+            if not instalado():
+                pendiente.append(("transcriptor", letras.PAQUETE, letras.MODULO))
+            if demucs_var.get():
+                try:
+                    hay = letras.demucs_instalado(app_dir())
+                except Exception:
+                    hay = False
+                if not hay:
+                    pendiente.append(("Demucs", letras.PAQUETE_DEMUCS,
+                                      letras.MODULO_DEMUCS))
+            return pendiente
+
         def refrescar_accion():
-            if instalado():
+            pendiente = faltantes()
+            if not pendiente:
                 accion.configure(text="Generar hoja con letra", command=generar)
                 estado.configure(
-                    text="Transcriptor instalado. La primera vez que uses un "
-                         "modelo se descarga (ver el tamaño al lado del selector).")
+                    text="Todo instalado. La primera vez que uses un modelo se "
+                         "descarga (ver el tamaño al lado del selector).")
             else:
-                accion.configure(text="Instalar transcriptor", command=instalar)
+                nombres = " y ".join(n for n, _p, _m in pendiente)
+                accion.configure(text=f"Instalar {nombres}", command=instalar)
+                peso = ("varios GB, porque arrastra PyTorch"
+                        if any(n == "Demucs" for n, _p, _m in pendiente)
+                        else "unos cientos de MB")
                 estado.configure(
-                    text="El transcriptor no está instalado. Se descarga aparte "
-                         "(unos cientos de MB) en tu carpeta de datos,\nno dentro "
-                         "de la aplicación, para que puedas actualizarlo o "
-                         "borrarlo por tu cuenta.")
+                    text=f"Falta instalar: {nombres} ({peso}). Se descarga en tu "
+                         f"carpeta de datos,\nno dentro de la aplicación, para "
+                         f"que puedas actualizarlo o borrarlo por tu cuenta.")
 
         def ocupar(si: bool, mensaje: str = ""):
             ocupado["si"] = si
@@ -735,13 +765,19 @@ class ChordApp(ttk.Frame):
                 self._guardar_hoja_con_letra(carga)
 
         def instalar():
+            pendiente = faltantes()      # se calcula en el hilo principal
             ocupar(True, "Instalando…")
-            threading.Thread(target=trabajo_instalar, daemon=True).start()
+            threading.Thread(target=trabajo_instalar, args=(pendiente,),
+                             daemon=True).start()
             win.after(120, sondear)
 
-        def trabajo_instalar():
+        def trabajo_instalar(pendiente):
             try:
-                letras.instalar(app_dir(), on_line=lambda l: cola.put(("linea", l)))
+                for nombre, paquete, modulo in pendiente:
+                    cola.put(("linea", f"Instalando {nombre}…"))
+                    letras.instalar(app_dir(),
+                                    on_line=lambda l: cola.put(("linea", l)),
+                                    paquete=paquete, modulo=modulo)
                 cola.put(("instalado", None))
             except BaseException as exc:
                 cola.put(("error", (exc, traceback.format_exc())))
@@ -751,15 +787,23 @@ class ChordApp(ttk.Frame):
             # desde el hilo de trabajo lanza «main thread is not in main loop».
             escrita = texto.get("1.0", "end").strip()
             modelo, idioma = modelo_var.get(), idioma_var.get()
+            separar = demucs_var.get()
             ocupar(True, "Transcribiendo… puede tardar varios minutos.")
             threading.Thread(target=trabajo_generar,
-                             args=(escrita, modelo, idioma), daemon=True).start()
+                             args=(escrita, modelo, idioma, separar),
+                             daemon=True).start()
             win.after(120, sondear)
 
-        def trabajo_generar(escrita: str, modelo: str, idioma: str):
+        def trabajo_generar(escrita: str, modelo: str, idioma: str,
+                            separar: bool):
             try:
+                audio = self.audio_path
+                if separar:
+                    audio = letras.separar_voz(
+                        audio, app_dir(),
+                        on_line=lambda l: cola.put(("linea", l)))
                 palabras = letras.transcribir(
-                    self.audio_path, app_dir(), modelo=modelo, idioma=idioma,
+                    audio, app_dir(), modelo=modelo, idioma=idioma,
                     on_line=lambda l: cola.put(("linea", l)))
                 if escrita:
                     lineas = letras.alinear(escrita, palabras)

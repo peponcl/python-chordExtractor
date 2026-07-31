@@ -39,7 +39,16 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 PAQUETE = "faster-whisper"
+MODULO = "faster_whisper"
 WORKER = "transcribe_worker.py"
+
+# Demucs separa la voz del resto de la mezcla. Transcribir sobre la voz aislada
+# mejora bastante los tiempos —que es lo que aprovecha el alineamiento— cuando
+# la canción tiene guitarras densas o batería fuerte. Arrastra PyTorch, así que
+# se instala aparte y sólo si se pide.
+PAQUETE_DEMUCS = "demucs"
+MODULO_DEMUCS = "demucs"
+MODELO_DEMUCS = "htdemucs"
 
 # tiny/base van demasiado justos con voz cantada; small es el equilibrio
 # razonable. medium y large mejoran, a costa de tamaño y tiempo.
@@ -158,13 +167,14 @@ def _comando(python: str) -> list[str]:
     return python.split("|") if "|" in python else [python]
 
 
-def instalar(base: str, on_line: Optional[Callable[[str], None]] = None) -> str:
+def instalar(base: str, on_line: Optional[Callable[[str], None]] = None,
+             paquete: str = PAQUETE, modulo: str = MODULO) -> str:
     """
-    Crea el entorno de transcripción e instala faster-whisper. Devuelve la ruta
-    del intérprete. Si ya estaba, no hace nada.
+    Crea el entorno de trabajo si hace falta e instala el paquete indicado.
+    Devuelve la ruta del intérprete. Si ya estaba, no hace nada.
     """
     ya = python_del_entorno(base)
-    if ya and _tiene_paquete(ya):
+    if ya and _tiene_paquete(ya, modulo):
         return ya
 
     def aviso(texto: str):
@@ -185,9 +195,9 @@ def instalar(base: str, on_line: Optional[Callable[[str], None]] = None) -> str:
         if not ya:
             raise TranscripcionFallida("El entorno se creó sin intérprete")
 
-    aviso(f"Descargando e instalando {PAQUETE}… (unos cientos de MB)")
+    aviso(f"Descargando e instalando {paquete}…")
     proceso = subprocess.Popen(
-        [ya, "-m", "pip", "install", "--upgrade", PAQUETE],
+        [ya, "-m", "pip", "install", "--upgrade", paquete],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         encoding="utf-8", errors="replace", **_sin_consola())
     ultimas = []
@@ -204,12 +214,13 @@ def instalar(base: str, on_line: Optional[Callable[[str], None]] = None) -> str:
     return ya
 
 
-def _tiene_paquete(python: str) -> bool:
+def _tiene_paquete(python: str, modulo: str = MODULO) -> bool:
     try:
         salida = subprocess.run(
             [python, "-I", "-c",
-             "import importlib.util as u; print('SI' if u.find_spec('faster_whisper') else 'NO')"],
-            capture_output=True, text=True, timeout=60, **_sin_consola())
+             f"import importlib.util as u; "
+             f"print('SI' if u.find_spec('{modulo}') else 'NO')"],
+            capture_output=True, text=True, timeout=120, **_sin_consola())
         return salida.stdout.strip() == "SI"
     except (OSError, subprocess.SubprocessError):
         return False
@@ -217,12 +228,78 @@ def _tiene_paquete(python: str) -> bool:
 
 def instalado(base: str) -> bool:
     python = python_del_entorno(base)
-    return bool(python) and _tiene_paquete(python)
+    return bool(python) and _tiene_paquete(python, MODULO)
+
+
+def demucs_instalado(base: str) -> bool:
+    python = python_del_entorno(base)
+    return bool(python) and _tiene_paquete(python, MODULO_DEMUCS)
 
 
 def desinstalar(base: str) -> None:
     """Borra el entorno entero; los modelos descargados no se tocan."""
     shutil.rmtree(entorno_dir(base), ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# Separación de la voz con Demucs
+# --------------------------------------------------------------------------- #
+def voz_dir(base: str) -> str:
+    return os.path.join(base, "voz")
+
+
+def separar_voz(audio: str, base: str, modelo: str = MODELO_DEMUCS,
+                on_line: Optional[Callable[[str], None]] = None) -> str:
+    """
+    Devuelve la ruta a un wav con sólo la voz, separada del resto de la mezcla.
+
+    Se reutiliza si ya se separó antes ese mismo archivo: Demucs tarda minutos
+    en CPU y no tiene sentido repetirlo.
+
+    Nota: aquí interesa el stem de VOZ, justo lo contrario que en la detección de
+    acordes, que analiza bass+other precisamente para quitarse la voz de encima.
+    """
+    python = python_del_entorno(base)
+    if not python or not _tiene_paquete(python, MODULO_DEMUCS):
+        raise TranscripcionFallida("Demucs no está instalado")
+
+    destino = voz_dir(base)
+    pista = os.path.splitext(os.path.basename(audio))[0]
+    esperado = os.path.join(destino, modelo, pista, "vocals.wav")
+    if os.path.isfile(esperado):
+        if on_line:
+            on_line("Voz ya separada anteriormente: se reutiliza.")
+        return esperado
+
+    os.makedirs(destino, exist_ok=True)
+    if on_line:
+        on_line("Separando la voz con Demucs… en CPU esto tarda varios minutos.")
+
+    # --two-stems=vocals sólo calcula voz y acompañamiento, en vez de los cuatro
+    # stems: es bastante más rápido y aquí no necesitamos los demás.
+    proceso = subprocess.Popen(
+        [python, "-m", "demucs", "--two-stems=vocals", "-n", modelo,
+         "-o", destino, audio],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        encoding="utf-8", errors="replace", **_sin_consola())
+    ultimas = []
+    for linea in proceso.stdout:
+        linea = linea.rstrip()
+        ultimas = (ultimas + [linea])[-15:]
+        if on_line and linea:
+            on_line(linea[:160])
+    proceso.wait()
+    if proceso.returncode != 0:
+        raise TranscripcionFallida("Demucs falló:\n" + "\n".join(ultimas))
+    if not os.path.isfile(esperado):
+        raise TranscripcionFallida(
+            f"Demucs terminó pero no dejó el archivo esperado:\n{esperado}")
+    return esperado
+
+
+def limpiar_voces(base: str) -> None:
+    """Borra los wav de voz cacheados, que ocupan bastante."""
+    shutil.rmtree(voz_dir(base), ignore_errors=True)
 
 
 # --------------------------------------------------------------------------- #
