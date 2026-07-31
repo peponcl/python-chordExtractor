@@ -36,7 +36,7 @@ Tres caminos según lo que quieras hacer:
 
 | Quiero… | Haz esto | Necesitas |
 |---|---|---|
-| **Solo usarlo** en Windows | Descarga la carpeta `ChordExtractor`, descomprime y ejecuta `ChordExtractor.exe` | Nada. Windows avisará: ver más abajo |
+| **Solo usarlo** en Windows | Descarga la carpeta `ChordExtractor`, descomprime y ejecuta `ChordExtractor.exe` | Nada: ffmpeg y yt-dlp van dentro. Windows avisará: ver más abajo |
 | **Ejecutarlo desde el código** en Windows | `.\packaging\instalar-entorno.ps1` | Compilador de C++ |
 | **Ejecutarlo en Fedora** | `./packaging/instalar-entorno.sh` | Solo `sudo` para los paquetes |
 
@@ -155,13 +155,22 @@ distribución), así que no se construyen esos controles.
 
 ## Audio desde una URL (opcional)
 
-Con `yt-dlp` instalado aparece el botón **«Desde URL…»** en la barra superior.
-Pegas el enlace, se consultan los metadatos, y tras confirmar se descarga sólo la
-pista de audio a `%LOCALAPPDATA%\ChordExtractor\downloads\`.
+El botón **«Desde URL…»** de la barra superior pide un enlace, consulta los
+metadatos y, tras confirmar, descarga sólo la pista de audio a
+`%LOCALAPPDATA%\ChordExtractor\downloads\`.
+
+**El ejecutable ya trae yt-dlp incluido**, así que funciona sin instalar nada.
+Ejecutando desde el código sí hace falta instalarlo:
 
 ```bash
 winget install yt-dlp        # o: sudo dnf install yt-dlp
 ```
+
+Aunque venga incluido, **siempre se prefiere el que esté instalado en el
+sistema**. yt-dlp caduca —los sitios cambian cada pocas semanas y una versión
+congelada deja de funcionar—, así que cuando el incluido se quede atrás basta
+con instalar o actualizar yt-dlp por fuera: no hay que reconstruir ni volver a
+repartir el ejecutable.
 
 Ten en cuenta que descargar contenido de YouTube va contra sus Términos de
 Servicio salvo con la descarga offline de Premium.
@@ -241,9 +250,10 @@ Qué resuelve el spec (son las cuatro cosas que rompen si se empaqueta a lo brut
 
 ### Tamaño
 
-El bundle completo son **~658 MB**, de los cuales ~462 MB son ffmpeg y ffprobe
-(los binarios *full_build* de Gyan son estáticos, ~231 MB cada uno). Si prefieres
-un paquete ligero y asumes que el equipo destino tendrá ffmpeg instalado:
+El bundle completo son **~676 MB**, de los cuales ~462 MB son ffmpeg y ffprobe
+(los binarios *full_build* de Gyan son estáticos, ~231 MB cada uno) y 17 MB
+yt-dlp. Si prefieres un paquete ligero y asumes que el equipo destino tendrá
+ffmpeg instalado:
 
 ```bash
 set CHORDEXTRACTOR_BUNDLE_FFMPEG=0 && venv312\Scripts\pyinstaller chordextractor.spec --noconfirm

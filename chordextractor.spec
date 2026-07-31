@@ -124,6 +124,18 @@ else:
     print("[spec] ffmpeg NO se empaqueta (CHORDEXTRACTOR_BUNDLE_FFMPEG=0): "
           "el equipo destino lo necesitará instalado para leer MP3.")
 
+# yt-dlp también viaja dentro (17 MB sobre ~660: irrelevante) para que «Desde
+# URL…» funcione sin pedirle nada al usuario. Como caduca, ytaudio.find_ytdlp()
+# prefiere siempre uno instalado en el sistema: quien quiera una versión al día
+# sólo tiene que instalarlo, sin reconstruir nada.
+_ytdlp = find_tool("yt-dlp")
+if _ytdlp:
+    binaries.append((_ytdlp, "."))
+    print(f"[spec] yt-dlp: {_ytdlp}")
+else:
+    print("[spec] AVISO: no se encontró yt-dlp. El ejecutable pedirá instalarlo "
+          "para poder cargar audio desde una URL.")
+
 # --- madmom: modelos + submódulos ------------------------------------------
 datas = collect_data_files("madmom")          # incluye models/**/*.pkl
 hidden = collect_submodules("madmom")

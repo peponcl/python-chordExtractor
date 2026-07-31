@@ -102,16 +102,61 @@ def _winget_candidates(name: str) -> list[str]:
     return found
 
 
+def _bundle_dir() -> Optional[str]:
+    """Carpeta del paquete de PyInstaller, o None si corre desde el código."""
+    return getattr(sys, "_MEIPASS", None)
+
+
+def _which_fuera_del_paquete(name: str) -> Optional[str]:
+    """
+    Busca en el PATH ignorando la carpeta del propio paquete. El runtime hook
+    la antepone (lo necesita ffmpeg), así que sin esto el yt-dlp incluido
+    ganaría siempre y no habría manera de actualizarlo.
+    """
+    ruta = os.environ.get("PATH", "")
+    paquete = _bundle_dir()
+    if paquete:
+        normal = os.path.normcase(os.path.abspath(paquete))
+        ruta = os.pathsep.join(
+            p for p in ruta.split(os.pathsep)
+            if p and os.path.normcase(os.path.abspath(p)) != normal)
+    return shutil.which(name, path=ruta)
+
+
 def find_ytdlp(refresh: bool = False) -> Optional[str]:
-    """Ruta al ejecutable de yt-dlp, o None si no se encuentra."""
+    """
+    Ruta al ejecutable de yt-dlp, o None si no se encuentra.
+
+    Se prefiere siempre uno instalado en el sistema al que viene dentro del
+    paquete: yt-dlp caduca —los sitios cambian cada pocas semanas— y así basta
+    con instalarlo o actualizarlo por fuera para arreglarlo, sin tener que
+    reconstruir y redistribuir el ejecutable entero.
+    """
     if _ytdlp_cache and not refresh:
         return _ytdlp_cache[0]
-    found = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+
+    found = _which_fuera_del_paquete("yt-dlp")
     if not found and sys.platform == "win32":
-        candidates = _winget_candidates("yt-dlp")
-        found = candidates[0] if candidates else None
+        candidatos = _winget_candidates("yt-dlp")
+        found = candidatos[0] if candidatos else None
+    if not found:
+        paquete = _bundle_dir()
+        if paquete:
+            incluido = os.path.join(paquete, "yt-dlp.exe")
+            if os.path.isfile(incluido):
+                found = incluido
+
     _ytdlp_cache[:] = [found]
     return found
+
+
+def es_incluido(ruta: Optional[str]) -> bool:
+    """True si esa ruta es la del yt-dlp que viaja dentro del paquete."""
+    paquete = _bundle_dir()
+    if not ruta or not paquete:
+        return False
+    return os.path.normcase(os.path.abspath(ruta)).startswith(
+        os.path.normcase(os.path.abspath(paquete)))
 
 
 def _run(args: list[str], on_line: Optional[Callable[[str], None]] = None) -> str:
