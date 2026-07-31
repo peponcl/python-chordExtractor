@@ -25,19 +25,32 @@ def _habilitar_cuda():
     CTranslate2 detecta la GPU y quiere usarla, pero no trae consigo el runtime
     de CUDA: necesita cublas64_12.dll y las de cuDNN, que NO están en el PATH.
 
-    Si Demucs está instalado, PyTorch sí las trae en su carpeta lib, así que
-    basta con registrar ese directorio para que se encuentren. Sin esto, el
-    modelo falla con «Library cublas64_12.dll is not found or cannot be loaded».
+    Si Demucs está instalado, PyTorch sí las trae en su carpeta lib, así que se
+    registra ese directorio para que se encuentren. Sin esto, la transcripción
+    falla con «Library cublas64_12.dll is not found or cannot be loaded».
+
+    Devuelve una nota de lo ocurrido: si esto no funciona se acaba en CPU, y sin
+    la nota no habría forma de saber por qué.
     """
     if sys.platform != "win32":
-        return
+        return "no es Windows: no hace falta registrar DLL"
     try:
         import torch
-        lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-        if os.path.isdir(lib):
-            os.add_dll_directory(lib)
-    except Exception:
-        pass          # sin torch no hay GPU: se usará la CPU
+    except Exception as exc:
+        return f"torch no importable ({type(exc).__name__}), se usará CPU"
+    lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+    if not os.path.isdir(lib):
+        return f"no existe {lib}"
+    if not os.path.isfile(os.path.join(lib, "cublas64_12.dll")):
+        return f"cublas64_12.dll no está en {lib}"
+    try:
+        os.add_dll_directory(lib)
+        # El PATH del proceso también, por si alguna dependencia se resuelve por
+        # la vía clásica en vez de por los directorios registrados.
+        os.environ["PATH"] = lib + os.pathsep + os.environ.get("PATH", "")
+        return f"DLL de CUDA registradas desde {lib}"
+    except Exception as exc:
+        return f"no se pudieron registrar: {type(exc).__name__}: {exc}"
 
 
 def main():
@@ -53,25 +66,23 @@ def main():
         print(json.dumps({"error": f"faster-whisper no está instalado: {exc}"}))
         return 1
 
-    try:
-        _habilitar_cuda()
-        # Se intenta la GPU y, si el runtime de CUDA no carga, se sigue en CPU
-        # en vez de abortar: int8 en CPU es perfectamente utilizable, sólo más
-        # lento, y es preferible a dejar al usuario sin transcripción.
-        try:
-            model = WhisperModel(modelo, device="cuda", compute_type="int8")
-            dispositivo = "cuda"
-        except Exception:
-            model = WhisperModel(modelo, device="cpu", compute_type="int8")
-            dispositivo = "cpu"
+    def ejecutar(dispositivo):
+        """
+        Transcribe entera en el dispositivo dado.
 
+        El generador de segmentos se consume AQUÍ dentro a propósito:
+        model.transcribe() devuelve un iterador perezoso y CTranslate2 no toca
+        CUDA hasta que se recorre, así que el fallo por librerías del runtime no
+        aparece al construir el modelo sino al iterar. Si se dejara fuera, el
+        repliegue a CPU no llegaría a activarse nunca.
+        """
+        model = WhisperModel(modelo, device=dispositivo, compute_type="int8")
         segments, info = model.transcribe(
             audio,
             language=None if idioma == "auto" else idioma,
             word_timestamps=True,          # imprescindible para colocar acordes
             vad_filter=True,               # descarta los tramos sin voz
         )
-
         palabras = []
         for segmento in segments:
             for w in (segmento.words or []):
@@ -80,6 +91,19 @@ def main():
                     palabras.append({"text": texto,
                                      "start": round(w.start, 3),
                                      "end": round(w.end, 3)})
+        return palabras, info
+
+    aviso_cuda = _habilitar_cuda()
+    try:
+        try:
+            palabras, info = ejecutar("cuda")
+            dispositivo, motivo = "cuda", ""
+        except Exception as exc:
+            # int8 en CPU es perfectamente utilizable, sólo más lento, y es
+            # preferible a dejar al usuario sin transcripción.
+            motivo = f"{type(exc).__name__}: {exc}"[:200]
+            palabras, info = ejecutar("cpu")
+            dispositivo = "cpu"
 
         # ensure_ascii=True a propósito: en Windows la salida estándar sale en
         # la página de códigos del sistema (cp1252), no en UTF-8, así que un
@@ -89,10 +113,13 @@ def main():
         print(json.dumps({"language": info.language,
                           "duration": round(info.duration, 2),
                           "device": dispositivo,
+                          "cuda_aviso": aviso_cuda,
+                          "cuda_motivo": motivo,
                           "words": palabras}, ensure_ascii=True))
         return 0
     except Exception as exc:
-        print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
+        print(json.dumps({"error": f"{type(exc).__name__}: {exc}",
+                          "cuda_aviso": aviso_cuda}))
         return 1
 
 

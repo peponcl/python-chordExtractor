@@ -350,6 +350,11 @@ def transcribir(audio: str, base: str, modelo: str = MODELO_POR_DEFECTO,
         dispositivo = datos.get("device", "?")
         on_line(f"Transcrito en {dispositivo.upper()}: "
                 f"{len(datos['words'])} palabras.")
+        if dispositivo == "cpu" and datos.get("cuda_motivo"):
+            # Que se haya caído a CPU no es un error, pero conviene decirlo:
+            # explica por qué ha tardado más de lo esperado.
+            on_line(f"(la GPU no se pudo usar — {datos['cuda_aviso']}; "
+                    f"{datos['cuda_motivo']})")
 
     return [Palabra(p["text"], p["start"], p["end"]) for p in datos["words"]]
 
