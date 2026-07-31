@@ -346,6 +346,11 @@ def transcribir(audio: str, base: str, modelo: str = MODELO_POR_DEFECTO,
     if "error" in datos:
         raise TranscripcionFallida(datos["error"])
 
+    if on_line:
+        dispositivo = datos.get("device", "?")
+        on_line(f"Transcrito en {dispositivo.upper()}: "
+                f"{len(datos['words'])} palabras.")
+
     return [Palabra(p["text"], p["start"], p["end"]) for p in datos["words"]]
 
 

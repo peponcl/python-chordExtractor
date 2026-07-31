@@ -16,7 +16,28 @@ Salida (JSON):
      "words": [{"text": "hola", "start": 1.2, "end": 1.5}, ...]}
 """
 import json
+import os
 import sys
+
+
+def _habilitar_cuda():
+    """
+    CTranslate2 detecta la GPU y quiere usarla, pero no trae consigo el runtime
+    de CUDA: necesita cublas64_12.dll y las de cuDNN, que NO están en el PATH.
+
+    Si Demucs está instalado, PyTorch sí las trae en su carpeta lib, así que
+    basta con registrar ese directorio para que se encuentren. Sin esto, el
+    modelo falla con «Library cublas64_12.dll is not found or cannot be loaded».
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import torch
+        lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(lib):
+            os.add_dll_directory(lib)
+    except Exception:
+        pass          # sin torch no hay GPU: se usará la CPU
 
 
 def main():
@@ -33,8 +54,17 @@ def main():
         return 1
 
     try:
-        # int8 sobre CPU: es lo que hace esto viable sin GPU.
-        model = WhisperModel(modelo, device="auto", compute_type="int8")
+        _habilitar_cuda()
+        # Se intenta la GPU y, si el runtime de CUDA no carga, se sigue en CPU
+        # en vez de abortar: int8 en CPU es perfectamente utilizable, sólo más
+        # lento, y es preferible a dejar al usuario sin transcripción.
+        try:
+            model = WhisperModel(modelo, device="cuda", compute_type="int8")
+            dispositivo = "cuda"
+        except Exception:
+            model = WhisperModel(modelo, device="cpu", compute_type="int8")
+            dispositivo = "cpu"
+
         segments, info = model.transcribe(
             audio,
             language=None if idioma == "auto" else idioma,
@@ -58,6 +88,7 @@ def main():
         # intacto.
         print(json.dumps({"language": info.language,
                           "duration": round(info.duration, 2),
+                          "device": dispositivo,
                           "words": palabras}, ensure_ascii=True))
         return 0
     except Exception as exc:

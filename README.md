@@ -368,9 +368,17 @@ tema de banda real, el reconocedor sacó **0 palabras de la mezcla y 107 de la v
 aislada**. En ese material no es que la separación mejore el resultado, es que lo
 hace posible.
 
-De propina, transcribir la voz limpia salió más rápido (12 s frente a 25 s),
-porque el detector de actividad vocal se salta los silencios. La separación costó
-17 s con GPU, así que buena parte del tiempo se recupera.
+De propina, transcribir la voz limpia sale más rápido, porque el detector de
+actividad vocal se salta los silencios. La separación costó 17 s con GPU, así que
+buena parte del tiempo se recupera.
+
+> **Nota sobre la GPU.** CTranslate2, el motor de faster-whisper, detecta la
+> tarjeta y quiere usarla, pero no trae consigo el runtime de CUDA:
+> `cublas64_12.dll` y las de cuDNN no están en el PATH. Quien sí las trae es
+> PyTorch, que se instala con Demucs, así que el worker registra su carpeta
+> `lib` antes de cargar el modelo. Si falla igualmente, sigue en CPU en lugar de
+> abortar. Instalando sólo el transcriptor, sin Demucs, la transcripción irá
+> siempre por CPU: funciona, sólo que más lento.
 
 Ojo con el sentido: aquí interesa el stem de **voz**, lo contrario que en la
 detección de acordes, que analiza `bass + other` precisamente para quitarse la
