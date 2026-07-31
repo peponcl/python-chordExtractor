@@ -70,6 +70,23 @@ def transponer_acorde(acorde: str, semitonos: int) -> str:
     return ESCALA[(_PC[raiz] + semitonos) % 12] + resto
 
 
+def transponer_tonalidad(tonalidad: str, semitonos: int) -> Optional[str]:
+    """
+    'D major' + 2 -> 'E major'. Devuelve None si no se reconoce la tonalidad,
+    para que quien llame pueda decidir qué mostrar en su lugar.
+    """
+    if not tonalidad:
+        return None
+    partes = tonalidad.strip().split(None, 1)
+    if not partes:
+        return None
+    raiz, modo = partes[0], (partes[1] if len(partes) > 1 else "")
+    if raiz not in _PC:
+        return None
+    nueva = ESCALA[(_PC[raiz] + semitonos) % 12]
+    return f"{nueva} {modo}".strip()
+
+
 def _componer(linea: str, semitonos: int = 0) -> Bloque:
     """
     Reparte una línea de ChordPro en sus dos filas.

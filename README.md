@@ -339,6 +339,15 @@ respetando el tono elegido, en `.cho` o en texto plano. La vista usa tipografía
 monoespaciada porque la alineación de los acordes sobre las sílabas depende de
 que todos los caracteres midan lo mismo.
 
+Al transportar se muestra **el tono resultante** —`D major`, `E major`…— en vez
+de los semitonos, que obligarían a hacer la cuenta mental. Si la hoja no trae
+tonalidad detectada, se cae a `+2` y similares, que al menos indican cuánto se
+ha movido.
+
+El botón **«Abrir hoja…»** de la barra superior abre cualquier `.cho` guardado
+antes, sin necesidad de analizar nada. Acepta también archivos en cp1252, que es
+como suelen venir las hojas que circulan por ahí.
+
 ### Con letra
 
 El botón **«Con letra…»** añade la letra debajo de los acordes. Dos modos, según

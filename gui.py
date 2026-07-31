@@ -604,6 +604,33 @@ class ChordApp(ttk.Frame):
         os.makedirs(directory, exist_ok=True)
         return directory
 
+    def _on_open_chordpro(self):
+        ruta = filedialog.askopenfilename(
+            title="Abrir hoja de acordes",
+            filetypes=[("Hoja de acordes", "*.cho *.chopro *.chordpro *.crd *.pro"),
+                       ("Texto", "*.txt"),
+                       ("Todos los archivos", "*.*")])
+        if not ruta:
+            return
+        texto = None
+        # Las hojas que circulan por ahí no siempre están en UTF-8; antes de
+        # rendirse conviene probar la codificación clásica de Windows.
+        for codificacion in ("utf-8", "cp1252", "latin-1"):
+            try:
+                with open(ruta, encoding=codificacion) as fh:
+                    texto = fh.read()
+                break
+            except UnicodeDecodeError:
+                continue
+            except OSError as exc:
+                messagebox.showerror("No se pudo abrir", str(exc))
+                return
+        if texto is None:
+            messagebox.showerror("No se pudo abrir",
+                                 "No se reconoce la codificación del archivo.")
+            return
+        self._show_chordpro_viewer(texto, os.path.basename(ruta))
+
     def _show_chordpro_viewer(self, texto: str, titulo: str = "Hoja de acordes"):
         """
         Muestra la hoja en el formato clásico de dos filas: acordes encima,
@@ -624,7 +651,9 @@ class ChordApp(ttk.Frame):
         barra.pack(fill="x", pady=(0, 10))
         ttk.Label(barra, text="Transportar:").pack(side="left")
         semis = {"n": 0}
-        etiqueta = ttk.Label(barra, text="0", width=4, anchor="center",
+        # Muestra el tono resultante, no los semitonos: «+2» obliga a hacer la
+        # cuenta mental, que es justo lo que debería ahorrar la herramienta.
+        etiqueta = ttk.Label(barra, text="", width=12, anchor="center",
                              font=("Segoe UI", 10, "bold"))
 
         caja = ttk.Frame(body)
@@ -646,18 +675,26 @@ class ChordApp(ttk.Frame):
 
         def pintar():
             hoja = chordpro.parsear(texto, semis["n"])
+            original = hoja.directivas.get("key", "")
+            actual = chordpro.transponer_tonalidad(original, semis["n"])
+
             vista.configure(state="normal")
             vista.delete("1.0", "end")
             if hoja.directivas.get("title"):
-                vista.insert("end", hoja.titulo + "\n",
-                             ("cabecera",))
-            info = "   ".join(
-                f"{e}: {hoja.directivas[c]}"
-                for c, e in (("key", "Tonalidad"), ("tempo", "Tempo"))
-                if hoja.directivas.get(c))
-            if info:
-                extra = f"   (transportado {semis['n']:+d})" if semis["n"] else ""
-                vista.insert("end", info + extra + "\n", ("cabecera",))
+                vista.insert("end", hoja.titulo + "\n", ("cabecera",))
+
+            partes = []
+            if actual:
+                partes.append("Tonalidad: " + actual +
+                              (f"  (original {original})" if semis["n"] else ""))
+            elif original:
+                partes.append("Tonalidad: " + original)
+            if hoja.directivas.get("tempo"):
+                partes.append("Tempo: " + hoja.directivas["tempo"])
+            if semis["n"] and not actual:
+                partes.append(f"transportado {semis['n']:+d}")
+            if partes:
+                vista.insert("end", "   ".join(partes) + "\n", ("cabecera",))
             vista.insert("end", "\n")
             for bloque in hoja.bloques:
                 if bloque.en_blanco:
@@ -670,7 +707,11 @@ class ChordApp(ttk.Frame):
                     if bloque.letra:
                         vista.insert("end", bloque.letra + "\n")
             vista.configure(state="disabled")
-            etiqueta.configure(text=f"{semis['n']:+d}" if semis["n"] else "0")
+            # Sin tonalidad detectada no hay tono que mostrar: se cae a los
+            # semitonos, que al menos indican cuánto se ha movido.
+            etiqueta.configure(
+                text=actual if actual
+                else (f"{semis['n']:+d}" if semis["n"] else "—"))
 
         def mover(paso):
             semis["n"] = max(-11, min(11, semis["n"] + paso))
@@ -1124,6 +1165,10 @@ class ChordApp(ttk.Frame):
         # El botón está siempre: si yt-dlp falta, el diálogo explica cómo
         # instalarlo. Ocultarlo dejaba al usuario sin saber por qué no aparecía.
         ttk.Button(bar, text="Desde URL…", command=self._show_url_dialog
+                   ).pack(side="left", padx=(8, 0))
+        # No depende de que haya un análisis cargado: sirve para consultar
+        # cualquier hoja guardada antes.
+        ttk.Button(bar, text="Abrir hoja…", command=self._on_open_chordpro
                    ).pack(side="left", padx=(8, 0))
         self.file_label = ttk.Label(bar, text="Ningún archivo seleccionado",
                                     style="Muted.TLabel")
