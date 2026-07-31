@@ -54,7 +54,7 @@ AUDIO_TYPES = [
 ]
 
 APP_NAME = "Chord Extractor"
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 AUTHOR = "pepon"
 AUTHOR_SITE = "pepon.cl"
 
@@ -657,7 +657,10 @@ class ChordApp(ttk.Frame):
                      values=["auto", "es", "en", "pt", "fr", "it"]
                      ).pack(side="left", padx=(6, 0))
 
-        demucs_var = tk.BooleanVar(value=False)
+        # Marcada por defecto por lo medido sobre material de banda: sin separar,
+        # el reconocedor no sacó ni una palabra de la mezcla; con la voz aislada,
+        # 107. No es que mejore el resultado, es que lo hace posible.
+        demucs_var = tk.BooleanVar(value=True)
         fila_demucs = ttk.Frame(body)
         fila_demucs.pack(fill="x", pady=(10, 0))
         ttk.Checkbutton(fila_demucs, variable=demucs_var,
@@ -665,8 +668,9 @@ class ChordApp(ttk.Frame):
                         text="Separar la voz con Demucs antes de transcribir"
                         ).pack(side="left")
         ttk.Label(fila_demucs, style="Muted.TLabel",
-                  text="· mucho mejor con mezclas densas, pero tarda minutos y "
-                       "arrastra PyTorch (varios GB)").pack(side="left", padx=(6, 0))
+                  text="· recomendado: sobre la mezcla sin separar, en temas de "
+                       "banda el reconocedor suele no sacar nada"
+                  ).pack(side="left", padx=(6, 0))
 
         estado = ttk.Label(body, style="Muted.TLabel", justify="left", text="")
         estado.pack(anchor="w", pady=(12, 0))

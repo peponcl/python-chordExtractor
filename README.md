@@ -363,8 +363,14 @@ hay, la aplicación lo dice y explica cómo instalarlo.
 #### Separar la voz antes de transcribir
 
 La casilla **«Separar la voz con Demucs»** aísla la voz de la mezcla y transcribe
-sobre ella. Con guitarras densas, batería fuerte o voz agresiva mejora bastante
-los tiempos, que es justo lo que aprovecha el alineamiento.
+sobre ella. **Viene marcada por defecto**, y no por comodidad: medido sobre un
+tema de banda real, el reconocedor sacó **0 palabras de la mezcla y 107 de la voz
+aislada**. En ese material no es que la separación mejore el resultado, es que lo
+hace posible.
+
+De propina, transcribir la voz limpia salió más rápido (12 s frente a 25 s),
+porque el detector de actividad vocal se salta los silencios. La separación costó
+17 s con GPU, así que buena parte del tiempo se recupera.
 
 Ojo con el sentido: aquí interesa el stem de **voz**, lo contrario que en la
 detección de acordes, que analiza `bass + other` precisamente para quitarse la
