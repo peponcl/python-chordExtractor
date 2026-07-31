@@ -327,10 +327,13 @@ def transcribir(audio: str, base: str, modelo: str = MODELO_POR_DEFECTO,
         on_line(f"Transcribiendo con el modelo «{modelo}»… "
                 f"(la primera vez se descarga)")
 
+    # Se fuerza UTF-8 en el hijo además de escapar el JSON en el worker: con las
+    # dos cosas, ninguna página de códigos puede estropear las tildes.
+    entorno = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
     proceso = subprocess.run(
         [python, _ruta_worker(), audio, modelo, idioma],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        **_sin_consola())
+        env=entorno, **_sin_consola())
 
     salida = (proceso.stdout or "").strip()
     if not salida:

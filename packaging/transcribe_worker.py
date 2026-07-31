@@ -51,9 +51,14 @@ def main():
                                      "start": round(w.start, 3),
                                      "end": round(w.end, 3)})
 
+        # ensure_ascii=True a propósito: en Windows la salida estándar sale en
+        # la página de códigos del sistema (cp1252), no en UTF-8, así que un
+        # JSON con tildes y eñes llegaría corrompido al otro lado. Escapándolo
+        # todo a \uXXXX el texto viaja en ASCII puro y json.loads lo reconstruye
+        # intacto.
         print(json.dumps({"language": info.language,
                           "duration": round(info.duration, 2),
-                          "words": palabras}, ensure_ascii=False))
+                          "words": palabras}, ensure_ascii=True))
         return 0
     except Exception as exc:
         print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
