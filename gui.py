@@ -874,6 +874,10 @@ class ChordApp(ttk.Frame):
         self.export_lab_btn = ttk.Button(row, text="Exportar JSON",
                                          command=self._on_export_json, state="disabled")
         self.export_lab_btn.pack(side="right", padx=(0, 6))
+        self.export_cho_btn = ttk.Button(row, text="Hoja de acordes",
+                                         command=self._on_export_chordpro,
+                                         state="disabled")
+        self.export_cho_btn.pack(side="right", padx=(0, 6))
 
     def _build_timeline(self):
         wrap = ttk.Frame(self)
@@ -1010,6 +1014,7 @@ class ChordApp(ttk.Frame):
         self.now_label.configure(text="—")
         self.export_json_btn.configure(state="disabled")
         self.export_lab_btn.configure(state="disabled")
+        self.export_cho_btn.configure(state="disabled")
         self._draw_timeline()
 
     def _sync_device_state(self):
@@ -1138,6 +1143,7 @@ class ChordApp(ttk.Frame):
 
         self.export_json_btn.configure(state="normal")
         self.export_lab_btn.configure(state="normal")
+        self.export_cho_btn.configure(state="normal")
         self._draw_timeline()
         self._set_position(0.0)
 
@@ -1367,6 +1373,11 @@ class ChordApp(ttk.Frame):
     def _on_export_lab(self):
         if self.result:
             self._export("Anotación .lab", ".lab", self.result.to_lab())
+
+    def _on_export_chordpro(self):
+        if self.result:
+            self._export("Hoja de acordes ChordPro", ".cho",
+                         self.result.to_chordpro())
 
 
 def main():

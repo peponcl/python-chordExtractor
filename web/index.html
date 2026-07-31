@@ -146,6 +146,7 @@
           <div class="stat"><b>Acordes</b><span id="sCount">—</span></div>
           <div class="stat"><b>Método</b><span id="sMethod">—</span></div>
         </div>
+        <button id="exportCho">Hoja de acordes</button>
         <button id="exportJson">Exportar JSON</button>
         <button id="exportLab">Exportar .lab</button>
       </div>
@@ -456,6 +457,35 @@ $("exportLab").addEventListener("click", () => {
   const lab = result.chords
     .map(s => `${s.start.toFixed(6)}\t${s.end.toFixed(6)}\t${s.chord}\n`).join("");
   download(`${baseName()}.lab`, lab);
+});
+
+/* Hoja de acordes ChordPro. Misma salida que ExtractionResult.to_chordpro();
+   si cambia una, hay que cambiar la otra. */
+function toChordPro(data, chordsPerLine = 4) {
+  const marca = s => {
+    const t = Math.floor(s);
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  };
+  const lineas = [`{title: ${baseName()}}`,
+                  "{subtitle: acordes extraídos automáticamente}"];
+  if (data.key) lineas.push(`{key: ${data.key}}`);
+  if (data.tempo_bpm) lineas.push(`{tempo: ${Math.round(data.tempo_bpm)}}`);
+  lineas.push(`{comment: método ${data.method}` +
+              `${data.separated ? " con separación Demucs" : ""}` +
+              ` — sólo tríadas mayores y menores}`);
+  lineas.push("");
+
+  for (let i = 0; i < data.chords.length; i += chordsPerLine) {
+    const grupo = data.chords.slice(i, i + chordsPerLine);
+    lineas.push(`{comment: ${marca(grupo[0].start)}}`);
+    lineas.push(grupo.map(c => `[${prettyLabel(c.chord)}]`).join(" "));
+    lineas.push("");
+  }
+  return lineas.join("\n");
+}
+
+$("exportCho").addEventListener("click", () => {
+  if (result) download(`${baseName()}.cho`, toChordPro(result));
 });
 </script>
 </body>

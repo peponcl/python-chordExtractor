@@ -75,6 +75,50 @@ class ExtractionResult:
             f"{c.start:.6f}\t{c.end:.6f}\t{c.chord}\n" for c in self.chords
         )
 
+    def to_chordpro(self, chords_per_line: int = 4) -> str:
+        """
+        Formato ChordPro (.cho), el estándar de las hojas de acordes: lo leen
+        ChordPro, Chordii, OnSong, SongBook y compañía, y de ahí se saca PDF o
+        HTML para imprimir o compartir.
+
+        Todavía sin letra. Cada línea agrupa varios acordes y va precedida del
+        minuto en que empieza, para poder seguir la canción mientras suena.
+        Cuando se añada la letra, los acordes irán intercalados en ella con esta
+        misma sintaxis de corchetes.
+        """
+        def etiqueta(chord: str) -> str:
+            """'C:maj' -> 'C' | 'A:min' -> 'Am' | 'N' -> 'N.C.'"""
+            if not chord or chord == "N":
+                return "N.C."
+            root, _, quality = chord.partition(":")
+            if quality == "min":
+                return f"{root}m"
+            return root if quality in ("", "maj") else f"{root}{quality}"
+
+        def marca(segundos: float) -> str:
+            minutos, resto = divmod(int(segundos), 60)
+            return f"{minutos}:{resto:02d}"
+
+        nombre = os.path.splitext(os.path.basename(self.source))[0]
+        lineas = [f"{{title: {nombre}}}",
+                  "{subtitle: acordes extraídos automáticamente}"]
+        if self.key:
+            lineas.append(f"{{key: {self.key}}}")
+        if self.tempo_bpm:
+            lineas.append(f"{{tempo: {self.tempo_bpm:.0f}}}")
+        lineas.append(f"{{comment: método {self.method}"
+                      f"{' con separación Demucs' if self.separated else ''}"
+                      f" — sólo tríadas mayores y menores}}")
+        lineas.append("")
+
+        for i in range(0, len(self.chords), chords_per_line):
+            grupo = self.chords[i:i + chords_per_line]
+            lineas.append(f"{{comment: {marca(grupo[0].start)}}}")
+            lineas.append(" ".join(f"[{etiqueta(c.chord)}]" for c in grupo))
+            lineas.append("")
+
+        return "\n".join(lineas)
+
 
 # --------------------------------------------------------------------------- #
 # Separación de fuentes con Demucs (opcional)
@@ -277,6 +321,10 @@ def main():
     ap.add_argument("--json", metavar="RUTA", help="guardar resultado como JSON")
     ap.add_argument("--lab", metavar="RUTA",
                     help="guardar acordes en formato .lab (start end etiqueta)")
+    ap.add_argument("--chordpro", metavar="RUTA",
+                    help="guardar como hoja de acordes ChordPro (.cho)")
+    ap.add_argument("--por-linea", type=int, default=4, metavar="N",
+                    help="acordes por línea en el ChordPro (por defecto 4)")
     args = ap.parse_args()
 
     result = extract(
@@ -296,6 +344,10 @@ def main():
         with open(args.lab, "w", encoding="utf-8") as f:
             f.write(result.to_lab())
         print(f".lab guardado en {args.lab}")
+    if args.chordpro:
+        with open(args.chordpro, "w", encoding="utf-8") as f:
+            f.write(result.to_chordpro(chords_per_line=args.por_linea))
+        print(f"ChordPro guardado en {args.chordpro}")
 
 
 if __name__ == "__main__":

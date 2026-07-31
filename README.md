@@ -141,7 +141,8 @@ que la ventana no se congela. Verás:
   «Analizar» sobre un archivo ya procesado con las mismas opciones, el resultado
   aparece al instante en vez de reprocesarlo. El botón **Historial** abre la
   lista de análisis guardados para recargar cualquiera con un doble clic;
-- botones para **exportar** el resultado a JSON o a `.lab`;
+- botones para **exportar** el resultado a JSON, a `.lab` o a una **hoja de
+  acordes** en formato ChordPro (`.cho`);
 - un **tema claro y uno oscuro**, que se alternan con el botón de la barra
   superior. Arranca en oscuro y recuerda tu elección en
   `%LOCALAPPDATA%\ChordExtractor\config.json`. En Windows 10 2004+ y 11 la barra
@@ -293,7 +294,38 @@ muestra esa ruta.
 python chord_extractor.py cancion.mp3
 python chord_extractor.py cancion.mp3 --method cnn --json salida.json
 python chord_extractor.py cancion.mp3 --lab salida.lab
+python chord_extractor.py cancion.mp3 --chordpro cancion.cho --por-linea 8
 ```
+
+## Hoja de acordes (ChordPro)
+
+`--chordpro` genera un `.cho`, el formato estándar de las hojas de acordes: lo
+leen ChordPro, Chordii, OnSong, SongBook y compañía, y de ahí se saca PDF o HTML
+para imprimir o compartir. También está como botón «Hoja de acordes» en las dos
+interfaces.
+
+```
+{title: rock_rodrigo_take1}
+{subtitle: acordes extraídos automáticamente}
+{key: D major}
+{tempo: 128}
+{comment: método deepchroma — sólo tríadas mayores y menores}
+
+{comment: 0:00}
+[D] [G] [Dm] [D]
+
+{comment: 0:10}
+[G] [D] [Gm] [A#]
+```
+
+Los acordes se agrupan de cuatro en cuatro (ajustable con `--por-linea`), y cada
+grupo lleva el minuto en que empieza para poder seguir la canción mientras suena.
+
+**Todavía sin letra.** Está pensado así a propósito: cuando se añada, los acordes
+irán intercalados en ella con esta misma sintaxis de corchetes, que es
+precisamente para lo que sirve ChordPro. Colocar acordes sobre una letra es
+fácil, porque ambos van indexados por tiempo; lo difícil es obtener la letra con
+sus marcas de tiempo, y eso es otro proyecto.
 
 El formato `.lab` es el estándar de anotación de acordes (MIREX): una línea por
 segmento, `inicio<TAB>fin<TAB>etiqueta` en segundos, con `N` para los tramos sin
