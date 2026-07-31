@@ -138,6 +138,9 @@ else:
 
 # --- madmom: modelos + submódulos ------------------------------------------
 datas = collect_data_files("madmom")          # incluye models/**/*.pkl
+# El worker de transcripción no se importa: se ejecuta como script en el entorno
+# aparte que monta lyrics.py, así que entra como dato, no como módulo.
+datas.append((os.path.join("packaging", "transcribe_worker.py"), "packaging"))
 hidden = collect_submodules("madmom")
 model_count = sum(1 for src, _dst in datas if src.endswith(".pkl"))
 print(f"[spec] madmom: {model_count} modelos .pkl, {len(hidden)} submódulos")

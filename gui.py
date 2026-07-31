@@ -32,6 +32,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from chord_extractor import ExtractionResult, extract
 from history import History, HistoryUnavailable, options_key
+import lyrics as letras
 import ytaudio
 from chordviz import (
     color_for,
@@ -602,6 +603,186 @@ class ChordApp(ttk.Frame):
         os.makedirs(directory, exist_ok=True)
         return directory
 
+    def _show_lyrics_dialog(self):
+        if not self.result or not self.audio_path:
+            return
+
+        win = tk.Toplevel(self.master)
+        win.title("Hoja de acordes con letra")
+        win.configure(bg=self.colors["bg"])
+        set_dark_titlebar(win, self.colors["dark_titlebar"])
+        win.geometry("700x580")
+        win.transient(self.master)
+
+        body = ttk.Frame(win, padding=18)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text="Letra de la canción",
+                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(body, style="Muted.TLabel", justify="left",
+                  text="Si pegas la letra, sólo se usa el reconocedor para "
+                       "situarla en el tiempo: las palabras serán las tuyas y el "
+                       "resultado\nes mucho más fiable. Si lo dejas vacío, se "
+                       "transcribe automáticamente — cómodo para canciones "
+                       "ajenas,\npero cantando el reconocimiento falla bastante, "
+                       "sobre todo con mezclas densas o voz agresiva."
+                  ).pack(anchor="w", pady=(4, 12))
+
+        caja = ttk.Frame(body)
+        caja.pack(fill="both", expand=True)
+        texto = tk.Text(caja, height=12, wrap="word", relief="flat",
+                        bg=self.colors["field"], fg=self.colors["text"],
+                        insertbackground=self.colors["text"],
+                        font=("Segoe UI", 10), padx=8, pady=8)
+        barra = ttk.Scrollbar(caja, orient="vertical", command=texto.yview)
+        texto.configure(yscrollcommand=barra.set)
+        texto.pack(side="left", fill="both", expand=True)
+        barra.pack(side="right", fill="y")
+
+        opciones = ttk.Frame(body)
+        opciones.pack(fill="x", pady=(12, 0))
+        ttk.Label(opciones, text="Modelo:").pack(side="left")
+        modelo_var = tk.StringVar(value=letras.MODELO_POR_DEFECTO)
+        ttk.Combobox(opciones, textvariable=modelo_var, width=10, state="readonly",
+                     values=list(letras.MODELOS)).pack(side="left", padx=(6, 4))
+        modelo_info = ttk.Label(opciones, style="Muted.TLabel",
+                                text=letras.MODELOS[letras.MODELO_POR_DEFECTO])
+        modelo_info.pack(side="left")
+        modelo_var.trace_add("write", lambda *_a: modelo_info.configure(
+            text=letras.MODELOS.get(modelo_var.get(), "")))
+
+        ttk.Label(opciones, text="Idioma:").pack(side="left", padx=(16, 0))
+        idioma_var = tk.StringVar(value="auto")
+        ttk.Combobox(opciones, textvariable=idioma_var, width=7, state="readonly",
+                     values=["auto", "es", "en", "pt", "fr", "it"]
+                     ).pack(side="left", padx=(6, 0))
+
+        estado = ttk.Label(body, style="Muted.TLabel", justify="left", text="")
+        estado.pack(anchor="w", pady=(12, 0))
+        progreso = ttk.Progressbar(body, mode="indeterminate")
+        progreso.pack(fill="x", pady=(8, 0))
+
+        botones = ttk.Frame(body)
+        botones.pack(fill="x", pady=(14, 0))
+        ttk.Button(botones, text="Cerrar", command=win.destroy).pack(side="right")
+        accion = ttk.Button(botones, style="Accent.TButton")
+        accion.pack(side="right", padx=(0, 8))
+
+        cola: queue.Queue = queue.Queue()
+        ocupado = {"si": False}
+
+        def instalado() -> bool:
+            try:
+                return letras.instalado(app_dir())
+            except Exception:
+                return False
+
+        def refrescar_accion():
+            if instalado():
+                accion.configure(text="Generar hoja con letra", command=generar)
+                estado.configure(
+                    text="Transcriptor instalado. La primera vez que uses un "
+                         "modelo se descarga (ver el tamaño al lado del selector).")
+            else:
+                accion.configure(text="Instalar transcriptor", command=instalar)
+                estado.configure(
+                    text="El transcriptor no está instalado. Se descarga aparte "
+                         "(unos cientos de MB) en tu carpeta de datos,\nno dentro "
+                         "de la aplicación, para que puedas actualizarlo o "
+                         "borrarlo por tu cuenta.")
+
+        def ocupar(si: bool, mensaje: str = ""):
+            ocupado["si"] = si
+            accion.configure(state="disabled" if si else "normal")
+            texto.configure(state="disabled" if si else "normal")
+            if si:
+                progreso.start(12)
+            else:
+                progreso.stop()
+            if mensaje:
+                estado.configure(text=mensaje)
+
+        def sondear():
+            try:
+                tipo, carga = cola.get_nowait()
+            except queue.Empty:
+                if ocupado["si"]:
+                    win.after(120, sondear)
+                return
+
+            if tipo == "linea":
+                estado.configure(text=carga[:160])
+                win.after(120, sondear)
+                return
+
+            ocupar(False)
+            if tipo == "error":
+                exc, traza = carga
+                report_error(traza)
+                estado.configure(text=f"Error: {exc}")
+                messagebox.showerror("No se pudo completar", str(exc)[:600],
+                                     parent=win)
+                refrescar_accion()
+                return
+            if tipo == "instalado":
+                refrescar_accion()
+                messagebox.showinfo("Listo",
+                                    "Transcriptor instalado. Ya puedes generar "
+                                    "la hoja con letra.", parent=win)
+                return
+            if tipo == "lineas":
+                win.destroy()
+                self._guardar_hoja_con_letra(carga)
+
+        def instalar():
+            ocupar(True, "Instalando…")
+            threading.Thread(target=trabajo_instalar, daemon=True).start()
+            win.after(120, sondear)
+
+        def trabajo_instalar():
+            try:
+                letras.instalar(app_dir(), on_line=lambda l: cola.put(("linea", l)))
+                cola.put(("instalado", None))
+            except BaseException as exc:
+                cola.put(("error", (exc, traceback.format_exc())))
+
+        def generar():
+            # Las variables de Tk se leen AQUÍ, en el hilo principal: tocarlas
+            # desde el hilo de trabajo lanza «main thread is not in main loop».
+            escrita = texto.get("1.0", "end").strip()
+            modelo, idioma = modelo_var.get(), idioma_var.get()
+            ocupar(True, "Transcribiendo… puede tardar varios minutos.")
+            threading.Thread(target=trabajo_generar,
+                             args=(escrita, modelo, idioma), daemon=True).start()
+            win.after(120, sondear)
+
+        def trabajo_generar(escrita: str, modelo: str, idioma: str):
+            try:
+                palabras = letras.transcribir(
+                    self.audio_path, app_dir(), modelo=modelo, idioma=idioma,
+                    on_line=lambda l: cola.put(("linea", l)))
+                if escrita:
+                    lineas = letras.alinear(escrita, palabras)
+                else:
+                    lineas = letras.agrupar_en_lineas(palabras)
+                if not lineas:
+                    raise letras.TranscripcionFallida(
+                        "No se reconoció ninguna palabra en el audio.")
+                cola.put(("lineas", lineas))
+            except BaseException as exc:
+                cola.put(("error", (exc, traceback.format_exc())))
+
+        refrescar_accion()
+        win.grab_set()
+        texto.focus_set()
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+    def _guardar_hoja_con_letra(self, lineas):
+        if not self.result:
+            return
+        self._export("Hoja de acordes con letra", ".cho",
+                     self.result.to_chordpro_con_letra(lineas))
+
     def _show_history(self):
         if self.history is None:
             return
@@ -878,6 +1059,10 @@ class ChordApp(ttk.Frame):
                                          command=self._on_export_chordpro,
                                          state="disabled")
         self.export_cho_btn.pack(side="right", padx=(0, 6))
+        self.letra_btn = ttk.Button(row, text="Con letra…",
+                                    command=self._show_lyrics_dialog,
+                                    state="disabled")
+        self.letra_btn.pack(side="right", padx=(0, 6))
 
     def _build_timeline(self):
         wrap = ttk.Frame(self)
@@ -1015,6 +1200,7 @@ class ChordApp(ttk.Frame):
         self.export_json_btn.configure(state="disabled")
         self.export_lab_btn.configure(state="disabled")
         self.export_cho_btn.configure(state="disabled")
+        self.letra_btn.configure(state="disabled")
         self._draw_timeline()
 
     def _sync_device_state(self):
@@ -1144,6 +1330,10 @@ class ChordApp(ttk.Frame):
         self.export_json_btn.configure(state="normal")
         self.export_lab_btn.configure(state="normal")
         self.export_cho_btn.configure(state="normal")
+        # La letra sólo tiene sentido con el audio a mano: una entrada del
+        # historial cuyo archivo desapareció no se puede transcribir.
+        self.letra_btn.configure(
+            state="normal" if self.audio_path else "disabled")
         self._draw_timeline()
         self._set_position(0.0)
 

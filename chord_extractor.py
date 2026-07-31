@@ -75,6 +75,96 @@ class ExtractionResult:
             f"{c.start:.6f}\t{c.end:.6f}\t{c.chord}\n" for c in self.chords
         )
 
+    def to_chordpro_con_letra(self, lineas_letra) -> str:
+        """
+        Hoja de acordes con la letra, en ChordPro.
+
+        `lineas_letra` son objetos con `.palabras` (cada una con `.texto`,
+        `.inicio` y `.fin`), tal como los devuelve lyrics.py.
+
+        Cada acorde se coloca delante de la palabra que suena cuando entra, no
+        en una posición calculada por regla de tres: partir una palabra por la
+        mitad queda mal y se lee peor.
+        """
+        def etiqueta(chord: str) -> str:
+            if not chord or chord == "N":
+                return "N.C."
+            root, _, quality = chord.partition(":")
+            if quality == "min":
+                return f"{root}m"
+            return root if quality in ("", "maj") else f"{root}{quality}"
+
+        def marca(segundos: float) -> str:
+            minutos, resto = divmod(int(segundos), 60)
+            return f"{minutos}:{resto:02d}"
+
+        nombre = os.path.splitext(os.path.basename(self.source))[0]
+        salida = [f"{{title: {nombre}}}",
+                  "{subtitle: acordes y letra extraídos automáticamente}"]
+        if self.key:
+            salida.append(f"{{key: {self.key}}}")
+        if self.tempo_bpm:
+            salida.append(f"{{tempo: {self.tempo_bpm:.0f}}}")
+        salida.append(f"{{comment: método {self.method}"
+                      f"{' con separación Demucs' if self.separated else ''}"
+                      f" — sólo tríadas mayores y menores}}")
+        salida.append("")
+
+        acordes = [c for c in self.chords if c.chord and c.chord != "N"]
+        usados = 0
+        anterior_fin = 0.0
+
+        for linea in lineas_letra:
+            if not linea.palabras:
+                continue
+
+            # Acordes que empiezan Y acaban en el hueco entre la línea anterior
+            # y ésta: van solos, como en un puente o un solo. Los que siguen
+            # sonando cuando entra la voz no van aquí, o saldrían dos veces.
+            huecos = [c for c in acordes
+                      if anterior_fin <= c.start < linea.inicio
+                      and c.end <= linea.inicio]
+            if huecos:
+                salida.append(" ".join(f"[{etiqueta(c.chord)}]" for c in huecos))
+
+            salida.append(f"{{comment: {marca(linea.inicio)}}}")
+
+            piezas = []
+            pendientes = [c for c in acordes
+                          if linea.inicio - 0.35 <= c.start <= linea.fin]
+
+            indice = 0
+            for palabra in linea.palabras:
+                while (indice < len(pendientes)
+                       and pendientes[indice].start <= palabra.fin):
+                    piezas.append(f"[{etiqueta(pendientes[indice].chord)}]")
+                    indice += 1
+                piezas.append(palabra.texto + " ")
+            for resto in pendientes[indice:]:
+                piezas.append(f"[{etiqueta(resto.chord)}]")
+
+            # Si al empezar la línea ya venía sonando un acorde de antes, se
+            # anota delante — salvo que otro entre ya sobre la primera palabra,
+            # porque entonces quedarían dos acordes pegados sin letra entre medias.
+            if not piezas[0].startswith("["):
+                previo = [c for c in acordes if c.start <= linea.inicio]
+                if previo:
+                    piezas.insert(0, f"[{etiqueta(previo[-1].chord)}]")
+
+            salida.append("".join(piezas).rstrip())
+            salida.append("")
+            anterior_fin = linea.fin
+            usados += len(pendientes)
+
+        # Lo que quede sonando después del último verso
+        sobrantes = [c for c in acordes if c.start > anterior_fin]
+        if sobrantes:
+            salida.append(f"{{comment: {marca(sobrantes[0].start)}}}")
+            salida.append(" ".join(f"[{etiqueta(c.chord)}]" for c in sobrantes))
+            salida.append("")
+
+        return "\n".join(salida)
+
     def to_chordpro(self, chords_per_line: int = 4) -> str:
         """
         Formato ChordPro (.cho), el estándar de las hojas de acordes: lo leen

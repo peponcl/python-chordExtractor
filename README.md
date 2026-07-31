@@ -23,6 +23,7 @@ recupera con el acorde y los tiempos correctos por ambos métodos.
 - `chordviz.py` — colores y etiquetas de acorde compartidos por ambas interfaces.
 - `history.py` — historial y caché de análisis en SQLite.
 - `ytaudio.py` — descarga de audio desde una URL con `yt-dlp` (opcional).
+- `lyrics.py` — transcripción y alineamiento de la letra (opcional).
 - `chordextractor.spec` + `packaging/` — receta de PyInstaller para distribuir la
   GUI como ejecutable autónomo.
 - `server.py` — API FastAPI mínima (`POST /extract` con el archivo subido).
@@ -321,11 +322,47 @@ interfaces.
 Los acordes se agrupan de cuatro en cuatro (ajustable con `--por-linea`), y cada
 grupo lleva el minuto en que empieza para poder seguir la canción mientras suena.
 
-**Todavía sin letra.** Está pensado así a propósito: cuando se añada, los acordes
-irán intercalados en ella con esta misma sintaxis de corchetes, que es
-precisamente para lo que sirve ChordPro. Colocar acordes sobre una letra es
-fácil, porque ambos van indexados por tiempo; lo difícil es obtener la letra con
-sus marcas de tiempo, y eso es otro proyecto.
+### Con letra
+
+El botón **«Con letra…»** añade la letra debajo de los acordes. Dos modos, según
+lo que tengas:
+
+- **Pegas la letra** → sólo se usa el reconocedor para *situarla* en el tiempo.
+  Las palabras son las tuyas y el resultado es bastante fiable, porque el
+  problema pasa de «adivinar qué dice» a «encontrar dónde lo dice». Es el modo
+  recomendado para tus propias canciones.
+- **Dejas la caja vacía** → transcripción automática. Cómodo para canciones
+  ajenas, pero el reconocimiento sobre voz *cantada* es notablemente peor que
+  sobre voz hablada, y con mezclas densas o voz agresiva la calidad cae mucho.
+
+```
+{comment: 0:12}
+[D]Bajo el cielo [G]gris
+[G]caminas sin [Am]mirar atras
+```
+
+Cada acorde se coloca delante de la palabra que suena cuando entra, no en una
+posición calculada por regla de tres: partir una palabra por la mitad se lee
+peor.
+
+**La dependencia se instala desde la propia aplicación.** Se usa
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper), que corre sobre
+CTranslate2 y **no arrastra PyTorch**: misma calidad que Whisper por una fracción
+del tamaño. Se instala en un entorno virtual aparte, dentro de
+`%LOCALAPPDATA%\ChordExtractor\transcripcion\`, no dentro del programa — así se
+puede actualizar o borrar sin tocar la aplicación, y el ejecutable no engorda.
+
+Modelos disponibles: `tiny` (~75 MB) a `large-v3` (~3 GB); `small` (~480 MB) es
+el equilibrio razonable, porque `tiny` y `base` van demasiado justos cantando. El
+modelo se descarga la primera vez que se usa.
+
+En el ejecutable empaquetado hace falta que haya **Python instalado en el
+sistema** para poder montar ese entorno, porque el `.exe` no lleva pip. Si no lo
+hay, la aplicación lo dice y explica cómo instalarlo.
+
+> Sobre publicar: los acordes no son problema, una progresión no es material
+> protegible. Las letras sí lo son, y publicar la de una canción ajena requiere
+> licencia. Para uso propio, o para tus propias canciones, no hay inconveniente.
 
 El formato `.lab` es el estándar de anotación de acordes (MIREX): una línea por
 segmento, `inicio<TAB>fin<TAB>etiqueta` en segundos, con `N` para los tramos sin
