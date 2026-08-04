@@ -852,6 +852,26 @@ class ChordApp(ttk.Frame):
             return pendiente
 
         def refrescar_accion():
+            # Sin Python en el sistema no hay entorno que montar. Antes esto era
+            # un callejón sin salida con instrucciones para una terminal; ahora
+            # se ofrece instalarlo aquí mismo.
+            if not letras.hay_python():
+                accion.configure(state="normal")
+                if letras.puede_instalar_python():
+                    accion.configure(text="Instalar Python", command=poner_python)
+                    estado.configure(
+                        text="Falta Python en el sistema, necesario para montar "
+                             "el entorno de transcripción.\nSe puede instalar "
+                             "desde aquí: son unos 30 MB.")
+                else:
+                    accion.configure(text="Falta Python", state="disabled",
+                                     command=lambda: None)
+                    estado.configure(
+                        text="Falta Python en el sistema y no se encontró winget "
+                             "para instalarlo automáticamente.\nInstala Python "
+                             "3.12 desde python.org y vuelve a abrir esta ventana.")
+                return
+
             pendiente = faltantes()
             if not pendiente:
                 accion.configure(text="Generar hoja con letra", command=generar)
@@ -902,6 +922,14 @@ class ChordApp(ttk.Frame):
                                      parent=win)
                 refrescar_accion()
                 return
+            if tipo == "python":
+                refrescar_accion()
+                messagebox.showinfo(
+                    "Python instalado",
+                    "Listo. Ahora ya se puede montar el entorno de "
+                    "transcripción: pulsa de nuevo el botón para continuar.",
+                    parent=win)
+                return
             if tipo == "instalado":
                 refrescar_accion()
                 messagebox.showinfo("Listo",
@@ -911,6 +939,18 @@ class ChordApp(ttk.Frame):
             if tipo == "lineas":
                 win.destroy()
                 self._guardar_hoja_con_letra(carga)
+
+        def poner_python():
+            ocupar(True, "Instalando Python…")
+            threading.Thread(target=trabajo_python, daemon=True).start()
+            win.after(120, sondear)
+
+        def trabajo_python():
+            try:
+                letras.instalar_python(on_line=lambda l: cola.put(("linea", l)))
+                cola.put(("python", None))
+            except BaseException as exc:
+                cola.put(("error", (exc, traceback.format_exc())))
 
         def instalar():
             pendiente = faltantes()      # se calcula en el hilo principal

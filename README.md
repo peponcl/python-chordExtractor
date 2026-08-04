@@ -384,7 +384,13 @@ modelo se descarga la primera vez que se usa.
 
 En el ejecutable empaquetado hace falta que haya **Python instalado en el
 sistema** para poder montar ese entorno, porque el `.exe` no lleva pip. Si no lo
-hay, la aplicación lo dice y explica cómo instalarlo.
+hay, el propio diálogo ofrece un botón **«Instalar Python»** que lo resuelve con
+winget sin salir de la aplicación; sólo si tampoco hay winget remite a
+python.org.
+
+Python se busca en las carpetas donde se instala de verdad, no sólo en el PATH:
+recién instalado, el PATH del proceso en marcha sigue siendo el viejo, así que
+buscarlo ahí obligaría a cerrar y reabrir la aplicación.
 
 #### Separar la voz antes de transcribir
 

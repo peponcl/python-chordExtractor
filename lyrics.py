@@ -28,6 +28,7 @@ CTranslate2 y no arrastra PyTorch: misma calidad, una fracción del tamaño.
 from __future__ import annotations
 
 import difflib
+import glob
 import json
 import os
 import re
@@ -118,6 +119,42 @@ def python_del_entorno(base: str) -> Optional[str]:
     return ruta if os.path.isfile(ruta) else None
 
 
+def _candidatos_python() -> list[str]:
+    """
+    Todos los Python que puedan servir. Se mira el PATH, pero sobre todo las
+    carpetas donde se instalan de verdad: recién instalado con winget, el PATH
+    del proceso en marcha todavía es el viejo y shutil.which() no lo encuentra
+    hasta cerrar sesión.
+    """
+    encontrados = []
+    for nombre in ("python3.12", "python3.11", "python3.10", "python3.13",
+                   "python3", "python"):
+        ruta = shutil.which(nombre)
+        if ruta:
+            encontrados.append(ruta)
+
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        programas = os.environ.get("ProgramFiles", "")
+        patrones = [
+            os.path.join(local, "Programs", "Python", "Python3*", "python.exe"),
+            os.path.join(local, "Python", "pythoncore-3.*", "python.exe"),
+            os.path.join(programas, "Python3*", "python.exe"),
+        ]
+        for patron in patrones:
+            # Ordenado a la inversa para preferir la versión más alta que sirva.
+            encontrados.extend(sorted(glob.glob(patron), reverse=True))
+
+    # Sin duplicados, conservando el orden
+    vistos, unicos = set(), []
+    for ruta in encontrados:
+        clave = os.path.normcase(os.path.abspath(ruta))
+        if clave not in vistos:
+            vistos.add(clave)
+            unicos.append(ruta)
+    return unicos
+
+
 def _python_anfitrion() -> str:
     """
     Un Python con el que crear el entorno. Ejecutando desde el código vale el
@@ -127,15 +164,14 @@ def _python_anfitrion() -> str:
     if not getattr(sys, "frozen", False):
         return sys.executable
 
-    candidatos = ["python3.12", "python3.11", "python3.10", "python3", "python"]
-    for nombre in candidatos:
-        ruta = shutil.which(nombre)
-        if ruta and _version_valida(ruta):
+    for ruta in _candidatos_python():
+        if _version_valida(ruta):
             return ruta
+
     if sys.platform == "win32":
         lanzador = shutil.which("py")
         if lanzador:
-            for version in ("-3.12", "-3.11", "-3.10"):
+            for version in ("-3.12", "-3.11", "-3.10", "-3.13"):
                 try:
                     salida = subprocess.run([lanzador, version, "-c", "print(1)"],
                                             capture_output=True, timeout=20,
@@ -144,11 +180,61 @@ def _python_anfitrion() -> str:
                         return f"{lanzador}|{version}"
                 except (OSError, subprocess.SubprocessError):
                     pass
+
     raise SinPython(
         "Hace falta Python instalado en el sistema para montar el entorno de "
-        "transcripción. Instálalo con «winget install Python.Python.3.12» "
-        "(Windows) o «sudo dnf install python3.12» (Fedora) y vuelve a "
-        "intentarlo.")
+        "transcripción.")
+
+
+def hay_python() -> bool:
+    try:
+        _python_anfitrion()
+        return True
+    except SinPython:
+        return False
+
+
+def puede_instalar_python() -> bool:
+    """True si winget está disponible para instalarlo sin salir de la app."""
+    return sys.platform == "win32" and bool(shutil.which("winget"))
+
+
+def instalar_python(on_line: Optional[Callable[[str], None]] = None) -> str:
+    """
+    Instala Python con winget y devuelve la ruta del intérprete.
+
+    Después de instalar NO se busca en el PATH, que en este proceso sigue siendo
+    el de antes: se rastrean las carpetas de instalación. Sin esto habría que
+    cerrar y reabrir la aplicación para que lo viera.
+    """
+    if not puede_instalar_python():
+        raise SinPython(
+            "No se encontró winget para instalar Python automáticamente. "
+            "Instálalo a mano desde python.org (versión 3.12) y vuelve a "
+            "intentarlo.")
+
+    if on_line:
+        on_line("Instalando Python 3.12 con winget… (unos 30 MB)")
+    proceso = subprocess.Popen(
+        ["winget", "install", "--id", "Python.Python.3.12", "-e",
+         "--accept-source-agreements", "--accept-package-agreements"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        encoding="utf-8", errors="replace", **_sin_consola())
+    ultimas = []
+    for linea in proceso.stdout:
+        linea = linea.rstrip()
+        if linea:
+            ultimas = (ultimas + [linea])[-10:]
+            if on_line:
+                on_line(linea[:120])
+    proceso.wait()
+
+    try:
+        return _python_anfitrion()
+    except SinPython:
+        raise SinPython(
+            "winget terminó pero Python sigue sin aparecer.\n\n"
+            + "\n".join(ultimas[-5:]))
 
 
 def _version_valida(ruta: str) -> bool:
